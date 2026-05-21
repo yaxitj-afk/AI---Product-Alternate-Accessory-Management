@@ -1,0 +1,432 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="vraja_ai_dashboard_product_template_vts"
+       t-inherit="vraja_ai_dashboard_template"
+       t-inherit-mode="extension">
+
+        <xpath expr="//div[@id='dashboard_template_common_app_vts']" position="inside">
+            <div t-if="state.store === 'product_alt_acc'" style="height:100vh; overflow-y:auto; padding-bottom:30px;">
+                 <div t-if="!state.ready"
+                      class="d-flex justify-content-center align-items-center"
+                      style="height:100vh;">
+                    <div class="text-center text-muted">
+                        <span class="fa fa-spinner fa-spin fa-2x mb-3"/>
+                        <div>Loading dashboard...</div>
+                    </div>
+                </div>
+                <div t-if="state.ready">
+                    <h1 class="mb-4">AI Dashboard — Product Alternate &amp; Accessory</h1>
+
+
+                    <!-- Global message -->
+                    <div t-if="state.message"
+                         t-attf-class="alert alert-{{ state.messageType }} mb-3">
+                        <t t-esc="state.message"/>
+                    </div>
+
+                    <!-- Loading -->
+                    <div t-if="state.loading" class="alert alert-warning mb-3">
+                        <span class="fa fa-spinner fa-spin me-2"/>Please wait...
+                    </div>
+
+                    <!-- STEP 1 -->
+                    <div class="card mb-3 shadow-sm">
+                        <div class="card-header d-flex justify-content-between align-items-center dashboard-toggle"
+                             data-bs-toggle="collapse" data-bs-target="#product_ai_step1_section"
+                             style="cursor:pointer;">
+                            <strong><span class="fa fa-info-circle me-2"/>Step 1 — Summary of Content</strong>
+                            <i class="fa fa-chevron-down toggle-icon"/>
+                        </div>
+                        <div id="product_ai_step1_section" class="collapse">
+                            <div class="card-body">
+                                <h5 class="mb-3">About This Module</h5>
+
+                                <p class="text-muted">
+                                    The <strong>AI Product Alternate &amp; Accessory Linking</strong> module helps
+                                    automate
+                                    product relationship management inside Odoo by using Artificial Intelligence.
+                                </p>
+
+                                <p class="text-muted">
+                                    This module analyzes your selected products and intelligently suggests
+                                    <strong>alternative products</strong>
+                                    and
+                                    <strong>related accessories</strong>
+                                    based on product attributes, category, pricing, tags, and business context.
+                                </p>
+
+                                <p class="text-muted">
+                                    It is designed to reduce manual effort, improve product recommendations,
+                                    enhance cross-selling opportunities, and maintain accurate product linking
+                                    across large catalogs.
+                                </p>
+                                <p class="text-muted">
+                                    The module provides flexible AI configuration options, allowing businesses
+                                    to control suggestion criteria such as confidence level, pricing tolerance,
+                                    product matching factors, and recommendation limits according to their
+                                    specific catalog strategy.
+                                </p>
+
+                                <div class="alert alert-info mt-3 mb-0">
+                                    <span class="fa fa-lightbulb-o me-2"/>
+                                    Use this dashboard to configure AI settings, run analysis, review generated
+                                    suggestions, and apply them directly to your Odoo products.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 2 -->
+                    <div class="card mb-3 shadow-sm">
+                        <div class="card-header d-flex justify-content-between align-items-center dashboard-toggle"
+                             data-bs-toggle="collapse" data-bs-target="#product_ai_step2_section"
+                             style="cursor:pointer;">
+                            <strong><span class="fa fa-building me-2"/>Step 2 — Business Info</strong>
+                            <i class="fa fa-chevron-down toggle-icon"/>
+                        </div>
+                        <div id="product_ai_step2_section" class="collapse">
+                            <div class="card-body">
+                                <p class="text-muted small">Describe your business, industry, and product catalog to help AI make better suggestions.</p>
+                                <textarea id="product_ai_business_info" class="form-control" rows="4"
+                                          placeholder="e.g. We sell office furniture...">
+                                    <t t-if="state.productData and state.productData.product_ai_business_info"
+                                       t-esc="state.productData.product_ai_business_info"/>
+                                </textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 3 -->
+                    <div class="card mb-3 shadow-sm">
+                        <div class="card-header d-flex justify-content-between align-items-center dashboard-toggle"
+                             data-bs-toggle="collapse" data-bs-target="#product_ai_step3_section"
+                             style="cursor:pointer;">
+                            <strong><span class="fa fa-cubes me-2"/>Step 3 — Selected Products</strong>
+                            <i class="fa fa-chevron-down toggle-icon"/>
+                        </div>
+                        <div id="product_ai_step3_section" class="collapse">
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Select Products</label>
+
+                                    <!-- Tag box wrapper -->
+                                    <div class="o_field_widget o_input"
+                                         t-ref="productSelector"
+                                         style="min-height:38px; display:flex; flex-wrap:wrap; gap:4px;
+                                                align-items:center; padding:4px 8px; border:1px solid #dee2e6;
+                                                border-radius:6px; background:#fff; position:relative;">
+
+                                        <!-- Selected tag pills -->
+                                        <t t-foreach="state.selectedProducts" t-as="product" t-key="product.id">
+                                            <span style="display:inline-flex; align-items:center; gap:4px;
+                                                         background:#d0e9ff; color:#0d6efd; font-size:0.82em;
+                                                         padding:3px 8px; border-radius:20px; font-weight:500;">
+                                                <t t-esc="product.name"/>
+                                                <span style="cursor:pointer;"
+                                                      t-on-click="() => this.onRemoveProduct(product.id)">&#x2715;</span>
+                                            </span>
+                                        </t>
+
+                                        <!-- Search input -->
+                                        <input type="text" class="border-0" style="outline:none; box-shadow:none; min-width:120px;
+                                                   flex-grow:1; font-size:0.9rem; padding:2px 4px;"
+                                               placeholder="Search products..."
+                                               t-att-value="state.productSearch" t-on-input="onProductSearchInput"
+                                               t-on-focus="onProductSearchFocus"/>
+
+                                        <!-- Checkbox dropdown -->
+                                        <div t-if="state.showDropdown" style="position:absolute; top:100%; left:0; z-index:9999;
+                                                    width:100%; max-height:250px; overflow-y:auto; border:1px solid #dee2e6; border-radius:6px;
+                                                    background:#fff; box-shadow:0 4px 16px rgba(0,0,0,0.1);">
+
+                                            <!-- No results -->
+                                            <div t-if="!state.productDropdown.length"
+                                                 class="text-muted small px-3 py-2">
+                                                No products found.
+                                            </div>
+
+                                            <!-- Checkbox rows -->
+                                            <t t-foreach="state.productDropdown" t-as="item" t-key="item.id">
+                                                <div class="d-flex align-items-center px-3 py-2"
+                                                     style="cursor:pointer; gap:10px;"
+                                                     t-on-mousedown="() => this.onToggleProductCheckbox(item)">
+                                                    <input
+                                                            type="checkbox"
+                                                            class="form-check-input mt-0"
+                                                            style="cursor:pointer;"
+                                                            t-att-checked="!!state.selectedProductMap[item.id]"
+                                                            t-att-id="'chk_prod_' + item.id"
+                                                    />
+                                                    <label class="mb-0"
+                                                           style="cursor:pointer; font-size:0.9rem;"
+                                                           t-att-for="'chk_prod_' + item.id">
+                                                        <t t-esc="item.name"/>
+                                                    </label>
+                                                </div>
+                                            </t>
+                                        </div>
+                                    </div>
+
+                                    <!-- Selected count -->
+                                    <div t-if="state.selectedProducts.length" class="mt-2 text-muted small">
+                                        <span class="fa fa-check-circle text-success me-1"/>
+                                        <t t-esc="state.selectedProducts.length"/>
+                                        product(s) selected
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 4 -->
+                    <div class="card mb-3 shadow-sm">
+                        <div class="card-header d-flex justify-content-between align-items-center dashboard-toggle"
+                             data-bs-toggle="collapse" data-bs-target="#product_ai_step4_section"
+                             style="cursor:pointer;">
+                            <strong><span class="fa fa-cog me-2"/>Step 4 — Configuration</strong>
+                            <i class="fa fa-chevron-down toggle-icon"/>
+                        </div>
+                        <div id="product_ai_step4_section" class="collapse">
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">Suggestion Type</label>
+                                            <select id="product_ai_suggestion_type" class="form-select"
+                                                    t-att-value="state.productData and state.productData.product_ai_suggestion_type or 'both'">
+                                                <option value="both">Both alternatives and accessories</option>
+                                                <option value="alternatives">Alternatives only</option>
+                                                <option value="accessories">Accessories only</option>
+                                            </select>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">Price Tolerance (%)</label>
+                                            <input id="product_ai_price_tolerance" type="number" class="form-control"
+                                                   t-att-value="state.productData and state.productData.product_ai_price_tolerance or 15"/>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">Max Suggestions per Product</label>
+                                            <input id="product_ai_max_suggestions" type="number" class="form-control"
+                                                   t-att-value="state.productData and state.productData.product_ai_max_suggestions or 5"/>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">Minimum Confidence</label>
+                                            <select id="product_ai_min_confidence" class="form-select"
+                                                    t-att-value="state.productData and state.productData.product_ai_min_confidence or 'all'">
+                                                <option value="all">All (high + medium + low)</option>
+                                                <option value="medium">High &amp; medium only</option>
+                                                <option value="high">High only</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label fw-semibold">Data Sources</label>
+                                        <div class="form-check mb-2">
+                                           <input id="product_ai_use_category" class="form-check-input" type="checkbox"
+                                               t-att-checked="state.productData and state.productData.product_ai_use_category"/>
+                                            <label class="form-check-label"
+                                                   for="product_ai_use_category">Use Category</label>
+                                        </div>
+                                        <div class="form-check mb-2">
+                                            <input id="product_ai_use_tags" class="form-check-input" type="checkbox"
+                                               t-att-checked="state.productData and state.productData.product_ai_use_tags"/>
+                                            <label class="form-check-label" for="product_ai_use_tags">Use Tags</label>
+                                        </div>
+                                        <div class="form-check mb-2">
+                                            <input id="product_ai_use_price" class="form-check-input" type="checkbox"
+                                                t-att-checked="state.productData and state.productData.product_ai_use_price"/>
+
+                                            <label class="form-check-label" for="product_ai_use_price">Use Price</label>
+                                        </div>
+                                        <div class="form-check mb-2">
+                                            <input id="product_ai_use_attributes" class="form-check-input" type="checkbox"
+                                                t-att-checked="state.productData and state.productData.product_ai_use_attributes"/>
+                                            <label class="form-check-label"
+                                                   for="product_ai_use_attributes">Use Attributes</label>
+                                        </div>
+                                         <div class="form-check mb-2">
+                                            <input id="product_ai_auto_apply" class="form-check-input" type="checkbox"
+                                                t-att-checked="state.productData and state.productData.product_ai_auto_apply"/>
+                                            <label class="form-check-label"
+                                                   for="product_ai_auto_apply">Auto Analyzed &amp; Apply in Odoo</label>
+                                        </div>
+
+                                        <div class="form-check mb-2">
+                                            <input id="product_ai_use_sales_history" class="form-check-input" type="checkbox"
+                                                t-att-checked="state.productData and state.productData.product_ai_use_sales_history"/>
+                                            <label class="form-check-label" for="product_ai_use_sales_history">Use Sales History</label>
+                                        </div>
+
+                                        <div t-if="state.productData and state.productData.product_ai_use_sales_history"
+                                             class="col-md-6 mt-2">
+                                            <label class="form-label fw-semibold">Sales History Days</label>
+                                            <input type="number" id="product_ai_sales_history_days" class="form-control"
+                                                   min="1" max="365"
+                                                   t-att-value="state.productData.product_ai_sales_history_days or 30"/>
+                                            <div class="form-text">Number of days of past sales to include.</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <button class="btn btn-secondary btn-sm" t-on-click="onProductAISave">
+                                        <span class="fa fa-save me-1"/>Save Settings
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 5 -->
+                    <div class="card mb-3 shadow-sm">
+                        <div class="card-header d-flex justify-content-between align-items-center dashboard-toggle"
+                             data-bs-toggle="collapse" data-bs-target="#product_ai_step5_section"
+                             style="cursor:pointer;">
+                            <strong><span class="fa fa-rocket me-2"/>Step 5 — Data Preview &amp; Run AI</strong>
+                            <i class="fa fa-chevron-down toggle-icon"/>
+                        </div>
+                        <div id="product_ai_step5_section" class="collapse">
+                            <div class="card-body">
+
+                                <!-- No file yet -->
+                                <div t-if="!state.productData or !state.productData.excel_attachment"
+                                     class="alert alert-info small">
+                                    <span class="fa fa-info-circle me-1"/>
+                                    No preview available. Please select products in Step 3 and click
+                                    <strong>Save Settings</strong>
+                                    in Step 4 to generate the data file.
+                                </div>
+
+                                <!-- Attachment -->
+                                <div t-if="state.productData and state.productData.excel_attachment"
+                                     class="d-flex align-items-center gap-3 p-3 border rounded bg-light mb-3">
+                                    <span class="fa fa-file-excel-o text-success" style="font-size:2rem;"/>
+                                    <div>
+                                        <div class="fw-semibold">
+                                            <t t-esc="state.productData.excel_attachment.name"/>
+                                        </div>
+                                        <div class="text-muted small">
+                                            Click to view or download the prepared data file.
+                                        </div>
+                                    </div>
+                                    <a t-att-href="state.productData.excel_attachment.url"
+                                       class="btn btn-success ms-auto">
+                                        <span class="fa fa-download me-1"/>Download
+                                    </a>
+                                </div>
+
+                                <hr/>
+
+                                <!-- AI Status -->
+                                <div t-if="state.productData">
+                                    <div t-if="state.productData.product_ai_status === 'done'"
+                                         class="alert alert-success small">
+                                        <span class="fa fa-check me-1"/>AI analysis completed on
+                                        <t t-esc="state.productData.product_ai_analyzed_on"/>.
+                                    </div>
+                                </div>
+
+                                <!-- Run AI Button -->
+                                <button class="btn btn-primary mt-2"
+                                        t-on-click="onProductAIRun"
+                                        t-att-disabled="!state.selectedProducts.length or state.loading">
+                                    <span class="fa fa-magic me-1"/>Run AI Analysis
+                                </button>
+
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 6 -->
+                    <div class="card mb-3 shadow-sm">
+                        <div class="card-header d-flex justify-content-between align-items-center dashboard-toggle"
+                             data-bs-toggle="collapse" data-bs-target="#product_ai_step6_section"
+                             style="cursor:pointer;">
+                            <strong><span class="fa fa-check-circle me-2"/>Step 6 — Review &amp; Apply</strong>
+                            <i class="fa fa-chevron-down toggle-icon"/>
+                        </div>
+                        <div id="product_ai_step6_section" class="collapse">
+                            <div class="card-body">
+                                <p class="text-muted small">
+                                    Review AI suggestions below then click Apply to write them to your products.
+                                </p>
+                                <div class="alert alert-warning small">
+                                    <span class="fa fa-exclamation-triangle me-1"/>
+                                    Applying will overwrite existing alternatives and accessories for all selected
+                                    products.
+                                </div>
+
+                                <!-- No results yet -->
+                                <div t-if="!getAIResults().length" class="alert alert-info small">
+                                    <span class="fa fa-info-circle me-1"/>
+                                    No AI results yet. Please run AI analysis in Step 5 first.
+                                </div>
+
+                                <!-- Results cards -->
+                                <div t-if="getAIResults().length">
+
+                                    <!-- Search -->
+                                    <div class="d-flex align-items-center justify-content-between mb-3">
+                                        <div class="text-muted small">
+                                            <strong><t t-esc="getAIResults().length"/></strong>
+                                            products analysed
+                                        </div>
+                                        <input type="text" class="form-control form-control-sm" style="max-width:250px;"
+                                               placeholder="Search product..." t-on-input="onStep6Search"/>
+                                    </div>
+
+                                    <!-- Table -->
+                                    <div style="max-height:500px; overflow-y:auto;">
+                                        <table class="table table-sm table-hover align-midd le mb-0">
+                                            <thead class="table-dark sticky-top">
+                                                <tr>
+                                                    <th>Product</th>
+                                                    <th>Alternatives</th>
+                                                    <th>Accessories</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="getFilteredAIResults()" t-as="row" t-key="row.product_id">
+                                                    <tr>
+                                                        <td class="fw-semibold">
+                                                            <t t-esc="row.product_name or row.product_id"/>
+                                                        </td>
+                                                        <td>
+                                                            <div t-if="!row.alternatives.length"
+                                                                 class="text-muted small">None</div>
+                                                            <t t-foreach="row.alternatives" t-as="alt"
+                                                               t-key="alt.product_id">
+                                                                <t t-esc="alt.product_name"/>
+                                                                <t t-if="!alt_last">, </t>
+                                                            </t>
+                                                        </td>
+                                                        <td>
+                                                            <div t-if="!row.accessories.length"
+                                                                 class="text-muted small">None</div>
+                                                            <t t-foreach="row.accessories" t-as="acc"
+                                                               t-key="acc.product_id">
+                                                                <t t-esc="acc.product_name"/>
+                                                                <t t-if="!acc_last">, </t>
+                                                            </t>
+                                                        </td>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <!-- Apply Button -->
+                                    <button class="btn btn-success mt-3" t-on-click="onProductAIApply">
+                                        <span class="fa fa-check me-1"/>Confirm &amp; Apply to Odoo
+                                    </button>
+
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </xpath>
+    </t>
+</templates>
