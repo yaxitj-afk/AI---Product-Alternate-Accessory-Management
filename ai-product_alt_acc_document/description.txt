@@ -1,0 +1,179 @@
+Product AI Alternate & Accessory | AI-Powered Product Suggestion & Catalog Enrichment
+
+
+The Product AI Alternate & Accessory module provides a complete solution for automatically identifying and applying alternative and accessory products across your Odoo catalog using the power of OpenAI. Instead of manually linking related products one by one, your team selects the products they want to analyse, configures a few settings, and lets the AI do the work — scanning your full catalog, pricing data, categories, tags, attributes, and real sales history to generate intelligent suggestions that actually reflect how your customers shop.
+
+The entire process is managed through a guided six-step dashboard that walks your team from product selection all the way through to reviewing and applying AI suggestions directly to your Odoo product records. Products can be selected individually through a live search, added all at once with a single click, or imported in bulk by uploading an Excel file containing SKU codes. A downloadable reference template ensures your team always uploads files in the correct format. Once products are selected and settings are configured, the system generates a structured Excel data file and sends it to OpenAI along with your business context, after which the results appear in a searchable review table ready to be applied in one click.
+
+Every analysis run is fully logged with the status, error details if anything went wrong, suggestion type used, confidence level, total tokens consumed, and a per-product breakdown of exactly what alternatives and accessories were applied. The entire flow can also be automated through Odoo cron jobs so your product relationships stay current without any manual effort.
+
+
+===================================================================================================================================
+
+1. Features
+
+AI-Powered Product Suggestions:
+The AI analyses your product catalog, pricing, categories, tags, attributes, and sales history together and returns structured alternatives and accessories for every selected product — no manual matching, no guesswork.
+
+Smart Product Selection:
+Add products to your analysis individually through a live search, select your entire active catalog in one click, or upload a bulk SKU file to import hundreds of products at once without having to search one by one.
+
+SKU File Import:
+Upload an Excel file containing Internal Reference codes and the system automatically matches each SKU against your Odoo product catalog and adds the matched products to your selection instantly.
+Reference Template Download:
+Download a pre-formatted Excel template with the correct column structure so your team always uploads files in the right format without any confusion about which columns are required.
+
+Flexible AI Configuration:
+Control exactly how the AI behaves — choose between alternatives only, accessories only, or both, set a price tolerance percentage for alternative matching, define the maximum number of suggestions per product, and select the minimum confidence level to filter out weak matches.
+
+Excel Data Preview:
+Before running the AI, the system generates a structured Excel file containing your selected products, the full product catalog, and sales history — available to download so your team can verify the data going into the analysis.
+
+AI Result Review:
+All suggestions are displayed in a clean paginated table with search so your team can review every alternative and accessory for every product before committing to apply anything.
+
+One-Click Apply:
+Once your team is satisfied with the suggestions, a single click writes all alternatives and accessories directly to the corresponding Odoo product records — no manual editing required.
+
+Detailed AI Logs:
+Every analysis run creates a log entry recording the status, error message if any, suggestion type, confidence level, total tokens used, and a full per-product breakdown of what was suggested and what was applied, giving you a complete audit trail.
+
+Auto-Apply via Cron:
+Configure the system to run analysis automatically on a schedule and apply results without any manual intervention, so your product relationships stay up to date even as your catalog grows and changes.
+
+Guided Six-Step Dashboard:
+A clear step-by-step interface walks your team through the entire workflow — from entering business context and selecting products, through configuration and data preview, to running the AI and reviewing results — so nothing gets missed.
+
+Live Status Tracking:
+Each analysis card shows a real-time status badge showing whether the card is Idle, Running, Done, or in Error, so your team always knows the current state at a glance.
+
+Business Context Input:
+Provide a plain-language description of your business so the AI understands your industry and product relationships, making suggestions more relevant to how your specific customers actually think and shop.
+
+Automatic Error Logging:
+When anything goes wrong — whether an API timeout, a connection error, a missing configuration, or an unexpected response — the exact error is captured in the AI log with a clear message so your team knows precisely what happened and what to fix.
+
+===================================================================================================================================
+
+2. Processes
+
+
+Image 1 — 
+After installing the module, the AI Dashboard app appears directly on your home screen, giving you quick and easy access to all AI features and configuration options from one place.
+
+Image 2 — 
+From the Configuration menu, you can set up your ChatGPT API key and select the LLM model you want to use. The system supports multiple model options including GPT-4.1, GPT-4.1 Mini, GPT-5, GPT-5 Mini, GPT-5.4, and GPT-5.4 Mini, so you can choose the model that best fits your business needs.
+
+
+Image 3 — 
+The AI Dashboard gives you a central view of all available AI features. Each feature card shows its name, a short description of what it does, and its current status. The Product Alternate & Accessory feature analyses your product catalog and lets AI recommend the best alternatives and accessories for each product. You can click the Review button on any card to open its full workflow, or click Logs to view its past run history. In that we also have the button for the Active and inactive to make the cron active dynamically from here only.
+
+
+Image 4 —
+When you open the Product Alternate & Accessory Card, you are presented with a clean 6-step workflow — About This Module, Business Info, Selected Products, Configuration, Data Preview & Run AI, and Review & Apply. The status bar at the top shows how many products are currently selected and whether the AI analysis has been run, giving you a live summary of your session at all times.
+
+
+Image 5 — 
+Step 1 gives you a complete overview of what the AI Product Alternate & Accessory Linking feature does and how it works. It automates product relationship management inside your system using Artificial Intelligence. The feature works across four key areas — AI Powered analysis of your product catalog, suggesting Alternatives that customers would buy instead, suggesting Accessories that customers buy together, and using Sales History as the strongest matching signal. The How It Works section shows the five steps involved: Select Products, Configure Settings, Run AI Analysis, Review Results, and Apply.Once you have reviewed this information, click Next to proceed.
+
+
+Image 6 —
+Step 2 allows you to provide a description of your business so the AI can generate smarter and more relevant suggestions. Providing this context helps the AI understand your industry, predict what your customers actually need, and filter out suggestions that do not fit your catalog. They Describe Your Business, where you can write a short description of your company and what you sell. The section also guides you on what to include for best results, such as your industry or business type, types of products you sell, who your typical customers are, and any special catalog characteristics.
+
+
+Image 7 — 
+Step 3 allows you to select the products you want the AI to analyse. You can either search for products individually by typing in the search field, or you can bulk import products by uploading an Excel file with an Internal Reference column using the Choose File button. A Reference Template is also available to download so you know exactly how the import file should be formatted. A Select All button is available if you want to run the analysis across your entire product catalog at once.
+
+
+Image 7.1 — 
+Once products are selected, they appear as tags at the top of the search area and the status bar updates to show the total number of products selected. A dropdown checkbox list shows all available products with checkmarks against the selected ones, making it easy to add or remove products before proceeding. A Deselect All button appears allowing you to clear all selections and start fresh if needed.
+
+
+Image 8 — 
+Step 4 allows you to configure exactly how the AI should run its analysis. The Suggestion Type dropdown lets you choose between generating Both alternatives and accessories, Alternatives only, or Accessories only depending on your requirement. You can also set the Maximum Suggestions per Product and the Minimum Confidence level. 
+
+
+Image 8.1 — 
+The Minimum Confidence dropdown gives you three levels of control over the quality of suggestions — All which includes high, medium, and low confidence results. The Price Tolerance percentage field is also available here, On the right side, the Data Sources section lets you control which product attributes the AI should consider, including Category, Tags, Price, Attributes, and Sales History, with a Sales History Days field to define how many days of past sales data should be included. A Scheduled Auto Run option is also available at the bottom, which when enabled will automatically run the AI analysis and apply results on a daily schedule without any manual action in odoo. Once all settings are configured, you click Save & Next to proceed to the next step.
+
+
+Image 9 — 
+Step 5 shows you a preview of the data file that the system has automatically prepared for the AI analysis when you save the setting in previous state. The file named product_ai_data_4.xlsx contains all the selected products along with the full catalog and is ready to be sent to the AI. You can click the Download button to inspect this file before running the analysis. Once you are satisfied, click Run AI Analysis to trigger the AI processing.
+
+
+Image 9.1 —
+The Selected Products sheet inside the downloaded Excel file shows the details of only the products selected by the user, including their Product ID, Product Name, Price, Category, Tags, and Attributes. This sheet represents the specific products for which the AI will generate alternative and accessory recommendations.
+
+
+Image 9.2 —
+The Full Catalog sheet contains all the products available in your product catalog with the same column structure. This is the complete pool of products from which the AI will search and suggest alternatives and accessories for each of the selected products.
+
+
+Image 9.3 —
+The Sales History sheet contains actual sales order data from the past 30 days, including Sale Order, Order Date, Product, Quantity, and Unit Price. This co-purchase data is used by the AI as its strongest signal to determine which products are frequently bought together, making the accessory suggestions more accurate and data-driven.
+
+
+Image 10 —
+Once the AI analysis is complete, Step 6 shows you all the recommendations in a clear table listing each product along with its suggested Alternatives and Accessories. You can search for a specific product using the search field to quickly find its results. A warning message at the top reminds you that applying will overwrite any existing alternatives and accessories already saved on those products. Once you have reviewed the results and are satisfied, click Confirm & Apply to save all the AI suggestions directly to the respective products in odoo.
+
+
+Image 11 — Result Applied on Product Record
+After applying the results, you can open any product and go to its Sales tab to see the AI recommendations have been saved directly onto the product. The Accessory Products field now contains the AI-suggested accessories and the Alternative Products field contains the suggested alternatives, confirming that the entire process has completed successfully and the product relationships are now live in the system.
+
+
+Image 12 — 
+The AI Logs section, accessible from the top navigation menu, keeps a complete history of every AI analysis run. Each log entry shows the reference number, the date and time it was run, the AI feature used, and the final status. A green Success badge indicates the run completed and was applied correctly, while a red Failed badge indicates something went wrong, making it easy to monitor and audit all past AI activity.
+
+
+Image 13 — 
+Opening an individual log record gives you a full breakdown of that AI run. The Run Info section shows the exact date and time, the AI feature used, and the final status. The Configuration Used section shows the Suggestion Type and Confidence Level that were set for that run, along with the Total Tokens Used, helping you track API consumption. The Log Message confirms how many products were applied successfully, and the Product Details table below shows a per-product breakdown of how many alternatives and accessories were applied to each product along with their individual success status.
+
+
+Image 14 — 
+When Card is active in the dashboard and the Scheduled Auto Run option is enabled in Step 4 , the system automatically runs two scheduled actions — Product AI Auto Generate Excel and Product AI Auto Run AI Analysis. Both cron run daily and handle the entire AI workflow automatically without requiring any manual steps, ensuring your product alternatives and accessories are always kept up to date on a regular schedule.
+
+===================================================================================================================================
+
+FAQs
+
+Q1. What does the AI Product Alternate & Accessory module do?
+This module uses Artificial Intelligence to automatically analyse your product catalog and recommend the best alternative products and accessories for each product. It saves you hours of manual work by building product relationships intelligently based on your catalog data, product attributes, and real sales history.
+
+
+Q2. Which AI models are supported in this module?
+The module supports multiple OpenAI models including GPT-4.1, GPT-4.1 Mini, GPT-5, GPT-5 Mini, GPT-5.4, and GPT-5.4 Mini. You can select the model that best fits your business needs from the Configuration page.
+
+
+Q3. Where do I enter my OpenAI API key?
+You can enter your OpenAI API key from the Configuration menu inside the AI Dashboard. Simply open the Configuration page, enter your ChatGPT Key, select your preferred LLM model, and save.
+
+
+Q4. What is the difference between Alternative Products and Accessory Products?
+Alternative products are products that a customer would buy instead of the selected product, meaning they serve a similar purpose. Accessory products are products that a customer would buy together with the selected product, meaning they complement each other. The AI recommends both types based on your catalog and sales data.
+
+
+Q5. Do I need to select products manually every time I run the analysis?
+No. You can either search and select products individually, use the Select All option to include your entire catalog, or upload an Excel file with product internal references to bulk-select products. If you enable the Scheduled Auto Run option, the system handles everything automatically on a daily basis without any manual selection.
+
+
+Q6. Is the Business Info description mandatory?
+No, it is optional but strongly recommended. Adding a business description improves the accuracy of the AI suggestions significantly, especially for businesses with specialized or niche product catalogs.
+
+
+Q7. How many days of Sales History does the system use?
+You can configure the number of days of past sales data to include using the Sales History Days field in the Configuration step. By default it is set to 30 days, but you can increase or decrease this based on how much historical data you want the AI to consider.
+
+
+Q8. Can I review the AI suggestions before applying them to the products?
+Yes. Step 6 — Review & Apply shows you all the AI recommendations in a clear table before anything is saved. You can review each product's suggested alternatives and accessories, search for specific products, and only apply them when you are satisfied with the results.
+
+
+Q10. How do I track how many API tokens are being used?
+Every AI log record shows the Total Tokens Used for that particular run. You can refer to this figure to monitor your API consumption and plan your OpenAI usage accordingly.
+
+
+Q11. Who is the point of contact for technical support or bug-related queries?
+You can reach us via support@vrajatechnologies.com
+
+Q12. Can I get a demo of the module before making a purchase?
+Yes, to test this module please contact us at sales@vrajatechnologies.com
