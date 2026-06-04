@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Add a separate analysis dashboard button only on the Dynamic Pricing AI card. -->
+    <record id="view_vraja_ai_card_kanban_dp_analysis_button" model="ir.ui.view">
+        <field name="name">vraja.ai.card.kanban.dynamic.pricing.analysis.button</field>
+        <field name="model">vraja.ai.card</field>
+        <field name="inherit_id" ref="vraja_ai.view_vraja_ai_card_kanban"/>
+        <field name="arch" type="xml">
+
+            <!-- The condition needs vraja_common_store available in the kanban record. -->
+            <xpath expr="//kanban/field[@name='vraja_common_card_active']" position="after">
+                <field name="vraja_common_store"/>
+            </xpath>
+
+            <!-- Keep the existing Review/Active/Logs row unchanged and add a dedicated button below it. -->
+            <xpath expr="//div[button[@name='action_log_view']]" position="after">
+                <button t-if="record.vraja_common_store.raw_value == 'dynamic_pricing'"
+                        type="object"
+                        name="action_open_dp_analysis_dashboard"
+                        class="btn btn-sm rounded-pill mt-2 w-100 dp-analysis-card-button">
+                    <span class="fa fa-dashboard me-1"/>
+                    Analysis Dashboard
+                </button>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

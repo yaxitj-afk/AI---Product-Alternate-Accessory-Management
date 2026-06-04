@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_vraja_ai_card_user,vraja.ai.card.user,model_vraja_ai_card,base.group_user,1,0,0,0
+access_vraja_ai_config_user,vraja.ai.config.user,model_vraja_ai_config,base.group_user,1,1,1,0
+
+access_vraja_ai_log,access.vraja.ai.log,model_vraja_ai_log,,1,1,1,1
+access_vraja_ai_log_line,access.vraja.ai.log.line,model_vraja_ai_log_line,,1,1,1,1
+

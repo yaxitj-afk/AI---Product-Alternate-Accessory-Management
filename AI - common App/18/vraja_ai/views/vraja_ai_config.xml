@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="vraja_ai_config_default" model="vraja.ai.config">
+            <field name="openai_api_key"></field>
+        </record>
+    </data>
+
+    <record id="view_vraja_ai_config_form" model="ir.ui.view">
+        <field name="name">vraja.ai.config.form</field>
+        <field name="model">vraja.ai.config</field>
+        <field name="arch" type="xml">
+            <form string="AI Configuration" create="False">
+                <sheet>
+                    <group>
+                        <field name="openai_api_key"/>
+                        <field name="llm_model"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_vraja_ai_config" model="ir.actions.act_window">
+        <field name="name">AI Configuration</field>
+        <field name="res_model">vraja.ai.config</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_vraja_ai_config_form"/>
+        <field name="res_id" ref="vraja_ai_config_default"/>
+        <field name="target">current</field>
+    </record>
+
+    <menuitem id="menu_vraja_ai_configuration_root"
+              name="Configuration"
+              parent="vraja_ai.menu_vraja_ai_root"
+              action="action_vraja_ai_config"
+              sequence="10"/>
+
+</odoo>

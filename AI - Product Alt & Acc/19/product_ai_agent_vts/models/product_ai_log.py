@@ -23,7 +23,7 @@ class ProductAILog(models.Model):
     product_ai_total_products = fields.Integer(string='Products Analysed', readonly=True)
     product_ai_total_alt = fields.Integer(string='Alternatives Applied', readonly=True)
     product_ai_total_acc = fields.Integer(string='Accessories Applied', readonly=True)
-    product_ai_total_tokens = fields.Integer(string='Total Tokens Used', default=0,help="Total number of tokens consumed by the OpenAI API during this AI analysis run.")
+    product_ai_token_used = fields.Integer(string='Total Tokens Used', default=0,help="Total number of tokens consumed by the OpenAI API during this AI analysis run.")
     product_ai_log_message = fields.Text(string='Log Message')
 
 

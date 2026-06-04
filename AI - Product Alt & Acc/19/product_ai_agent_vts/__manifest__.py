@@ -39,6 +39,9 @@
 
     'external_dependencies': {
         'python': ['xlsxwriter', 'openpyxl', 'requests'],
+        # xlsxwriter :- Used when creating Excel (.xlsx) files from scratch.
+        # openpyxl :- Used when reading or modifying existing Excel files.
+        # requests :- Used for calling external APIs or websites.
     },
 
     # Views
