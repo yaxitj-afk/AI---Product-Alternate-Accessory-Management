@@ -18,7 +18,7 @@
         'data/ir_cron_data.xml',
         'views/dynamic_pricing_dashboard.xml',
         'views/dynamic_price_log_view.xml',
-        'views/dp_analysis_dashboard_button.xml',
+        'views/dynamic_pricing_batch_view.xml',
     ],
 
     # JS/XML Assets for the Custom Print Button

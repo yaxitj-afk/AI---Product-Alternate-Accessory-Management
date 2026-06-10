@@ -2,6 +2,7 @@
 
 import {registry} from "@web/core/registry";
 import {onMounted, onWillUnmount, useState, useRef} from "@odoo/owl";
+import {useService} from "@web/core/utils/hooks";
 import {VrajaAIDashboard} from "@vraja_ai/js/dashboard_client_action";
 
 class DynamicPricingDashboard extends VrajaAIDashboard {
@@ -16,6 +17,7 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
 
     setup() {
         super.setup();
+        this.actionService = useService("action");
 
         this.productSelectorRef = useRef("dpProductSelector");
         this.pricelistSelectorRef = useRef("dpPricelistSelector");
@@ -51,10 +53,14 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
         this._segmentPlBlurTimer = null;
         this.state.allPricelists = [];
         this.state.dpAutoApplyEnabled = false;
-
+        this.state.dpCompetitorUrls = [];
         // Step 6 (Review) state
         this.state.step4Search = '';
         this.state.step4Page = 1;
+        this.state.selectedRows = [];
+        this.state.deletedRows = [];
+        // this.state.dpResultsOverride = null;
+
 
         // Close dropdowns when clicking outside
         this._outsideClickHandler = (ev) => {
@@ -157,6 +163,16 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
         }));
 
         this.state.dpAutoApplyEnabled = d.dp_auto_apply || false;
+
+        // Load dynamic competitor URLs
+        if (d.dp_competitor_urls && d.dp_competitor_urls.length > 0) {
+            this.state.dpCompetitorUrls = d.dp_competitor_urls.map(u => ({
+                _key: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                url: u.url || '',
+            }));
+        } else {
+            this.state.dpCompetitorUrls = [];
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -336,6 +352,26 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
         this.state.dpSegmentRules = this.state.dpSegmentRules.filter(r => r._key !== key);
     }
 
+    onCompetitorUrlAdd() {
+        this.state.dpCompetitorUrls = [
+            ...this.state.dpCompetitorUrls,
+            {
+                _key: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                url: '',
+            }
+        ];
+    }
+
+    onCompetitorUrlDelete(key) {
+        this.state.dpCompetitorUrls = this.state.dpCompetitorUrls.filter(u => u._key !== key);
+    }
+
+    onCompetitorUrlChange(key, value) {
+        this.state.dpCompetitorUrls = this.state.dpCompetitorUrls.map(u =>
+            u._key === key ? {...u, url: value} : u
+        );
+    }
+
     getSegmentLabel(value) {
         const option = this.state.dpSegmentTypeOptions.find(o => o.value === value);
         return option ? option.label : value;
@@ -477,6 +513,7 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
     // REVIEW TABLE HELPERS
     // ─────────────────────────────────────────────────────────────────────────
 
+    // 2.  getDpResults() — add unique rowKey per row
     getDpResults() {
         if (!this.state.dpData?.dp_result_json) return [];
         try {
@@ -492,14 +529,19 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
                 margin_before: d.margin_before || 0,
                 margin_after: d.margin_after || 0,
                 reason: d.reason || '',
+                rowKey: `${d.product_id}_${d.segment_name || ''}`,  // ← unique per row
             }));
         } catch {
             return [];
         }
     }
 
+    // 3. REPLACE getFilteredDpResults() — filter by rowKey not product_id
     getFilteredDpResults() {
-        const results = this.getDpResults();
+        let results = this.getDpResults();
+        if (this.state.deletedRows?.length) {
+            results = results.filter(r => !this.state.deletedRows.includes(r.rowKey));
+        }
         const q = (this.state.step4Search || '').toLowerCase();
         if (!q) return results;
         return results.filter(r =>
@@ -550,6 +592,45 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
         }[decision] || 'dp-badge-skip';
     }
 
+    isDpRowSelected(rowKey) {
+        return this.state.selectedRows.includes(rowKey);
+    }
+
+    // 5. REPLACE toggleDpRow — use rowKey
+    toggleDpRow(rowKey, ev) {
+        if (ev.target.checked) {
+            this.state.selectedRows = [...this.state.selectedRows, rowKey];
+        } else {
+            this.state.selectedRows = this.state.selectedRows.filter(k => k !== rowKey);
+        }
+    }
+
+    isDpAllSelected() {
+        const rows = this.getFilteredDpResults();
+        return rows.length > 0 && rows.every(r => this.state.selectedRows.includes(r.rowKey));
+    }
+
+    // toggleDpSelectAll — use rowKey
+    toggleDpSelectAll(ev) {
+        const rows = this.getFilteredDpResults();
+        if (ev.target.checked) {
+            this.state.selectedRows = rows.map(r => r.rowKey);
+        } else {
+            this.state.selectedRows = [];
+        }
+    }
+
+    deleteSelectedDpRows() {
+        this.state.deletedRows = [...this.state.deletedRows, ...this.state.selectedRows];
+        this.state.selectedRows = [];
+        this._showMessage('Selected rows removed.', 'success');
+    }
+
+    deleteSingleDpRow(rowKey) {
+        this.state.deletedRows = [...this.state.deletedRows, rowKey];
+        this._showMessage('Row removed.', 'success');
+    }
+
     getConfidenceBadgeClass(confidence) {
         return {
             high: 'dp-conf-high',
@@ -558,6 +639,7 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
         }[confidence] || 'dp-conf-low';
     }
 
+
     // ─────────────────────────────────────────────────────────────────────────
     // SAVE — Step 4: all config, segment rules, competitor URLs, thresholds
     // ─────────────────────────────────────────────────────────────────────────
@@ -565,19 +647,19 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
     async onDpSave() {
         const deadStockEl = document.getElementById('dp_dead_stock_days');
         const salesHistoryEl = document.getElementById('dp_sales_history_days');
-        const url1El = document.getElementById('dp_competitor_url_1');
-        const url2El = document.getElementById('dp_competitor_url_2');
-        const url3El = document.getElementById('dp_competitor_url_3');
         const cronTimeEl = document.getElementById('dp_cron_time');
 
         const payload = {
             dp_dead_stock_days: deadStockEl ? parseInt(deadStockEl.value) || 45 : 45,
             dp_sales_history_days: salesHistoryEl ? parseInt(salesHistoryEl.value) || 30 : 30,
-            dp_competitor_url_1: url1El ? url1El.value : '',
-            dp_competitor_url_2: url2El ? url2El.value : '',
-            dp_competitor_url_3: url3El ? url3El.value : '',
+            dp_competitor_urls_json: JSON.stringify(
+                (this.state.dpCompetitorUrls || [])
+                    .filter(u => u.url && u.url.trim())
+                    .map(u => ({url: u.url.trim()}))
+            ),
             dp_cron_time: cronTimeEl ? cronTimeEl.value : '02:00 AM',
             dp_auto_apply: this.state.dpAutoApplyEnabled,
+            create_batches: true,
 
             // pricelist_ids kept as [{id, name}] so Python can re-serialize them
             dp_segment_rules: (this.state.dpSegmentRules || []).map(r => ({
@@ -599,7 +681,7 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
                 [this.state.cardId, payload],
             );
             // Keep local state in sync
-            this.state.dpData = {...this.state.dpData, ...payload};
+            await this.loadDpDashboardData();   // ← fetch fresh data including dp_csv_attachment_id
             this._showMessage('Settings saved successfully.', 'success');
             this.goToStep('#dp_step4_section', '#dp_step5_section');
         } catch (e) {
@@ -609,38 +691,9 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // RUN AI ANALYSIS
-    // ─────────────────────────────────────────────────────────────────────────
-
-    async onDpRunAI() {
-        try {
-            this.state.loading = true;
-            await this.orm.call('vraja.ai.card', 'action_run_dynamic_pricing', [
-                this.state.cardId,
-                (this.state.dpSegmentRules || []).map(r => ({
-                    customer_type: this.getSegmentLabel(r.customer_type),
-                    pricelist_ids: (r.pricelist_ids || []).map(p => p.id),
-                    min_margin_pct: r.min_margin_pct || 0,
-                    max_margin_pct: r.max_margin_pct || 0,
-                    max_decrease_pct: r.max_decrease_pct || 0,
-                    max_increase_pct: r.max_increase_pct || 0,
-                })),
-            ]);
-
-            await this.loadDpDashboardData();
-            if (this.state.dpData?.dp_status === 'error') {
-                this._showMessage(this.state.dpData.dp_error || 'AI analysis failed.', 'danger');
-            } else {
-                this._showMessage('AI analysis completed successfully.', 'success');
-                this.goToStep('#dp_step5_section', '#dp_step6_section');
-            }
-        } catch (e) {
-            this._showMessage(e?.data?.message || e?.message || String(e), 'danger');
-            await this.loadDpDashboardData();
-        } finally {
-            this.state.loading = false;
-        }
+    async onRefreshBatchStatus() {
+        await this.loadDpDashboardData();
+        this._showMessage('Batch status refreshed.', 'info');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -651,17 +704,30 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
         if (!confirm('Apply AI suggested prices to selected pricelists?')) return;
         try {
             this.state.loading = true;
+
+            // Only send rows that are NOT deleted
+            const activeRows = this.getFilteredDpResults().map(r => ({
+                product_id: r.product_id,
+                product_name: r.product_name,
+                segment_name: r.segment_name,
+                suggested_price: r.suggested_price,
+                decision: r.decision,
+                margin_before: r.margin_before,
+                margin_after: r.margin_after,
+            }));
+
             const result = await this.orm.call(
                 'vraja.ai.card', 'action_apply_dynamic_pricing', [
                     this.state.cardId,
                     (this.state.dpSegmentRules || []).map(r => ({
-                       customer_type: this.getSegmentLabel(r.customer_type),
+                        customer_type: this.getSegmentLabel(r.customer_type),
                         pricelist_ids: (r.pricelist_ids || []).map(p => p.id),
                         min_margin_pct: r.min_margin_pct || 0,
                         max_margin_pct: r.max_margin_pct || 0,
                         max_decrease_pct: r.max_decrease_pct || 0,
                         max_increase_pct: r.max_increase_pct || 0,
                     })),
+                    activeRows,  // ← filtered rows, deleted ones excluded
                 ]
             );
             await this.loadDpDashboardData();
@@ -671,6 +737,19 @@ class DynamicPricingDashboard extends VrajaAIDashboard {
         } finally {
             this.state.loading = false;
         }
+    }
+
+    async openAnalysisDashboard() {
+        await this.actionService.doAction({
+            type: 'ir.actions.client',
+            tag: 'dynamic_pricing_analysis_dashboard',
+            target: 'current',
+            params: {card_id: this.state.dpData?.id},
+        });
+    }
+
+    openBatchView() {
+        this.env.services.action.doAction('dynamic_pricing_with_ai.vraja_dp_batch_action');
     }
 }
 

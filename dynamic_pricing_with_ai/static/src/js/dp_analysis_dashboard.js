@@ -12,11 +12,12 @@ export class DynamicPricingAnalysisDashboard extends Component {
             cardId: this.props.action?.params?.card_id,
             loading: true,
             error: "",
-            period: "last_7_days",
-            limit: 5,
-            dateFrom: "",
-            dateTo: "",
             data: {},
+            activeTab: "impact",        // impact | products | segments | history | alerts
+            productSearch: "",
+            impactSearch: "",
+            impactFilter: "all",        // all | increase | decrease | hold | skip
+            expandedRunId: null,        // for drill-down in run history
         });
 
         this.requestSeq = 0;
@@ -34,35 +35,21 @@ export class DynamicPricingAnalysisDashboard extends Component {
     }
 
     enableDashboardScroll() {
-        // Target every ancestor that could clip height
-        const selectors = [
-            ".o_content",
-            ".o_action_manager",
-            ".o_view_controller",
-            ".o_action",
-        ];
+        const selectors = [".o_content", ".o_action_manager", ".o_view_controller", ".o_action"];
         this._scrollTargets = [];
         selectors.forEach(sel => {
             const el = document.querySelector(sel);
             if (el) {
-                this._scrollTargets.push({
-                    el,
-                    prevOverflow: el.style.overflowY,
-                    prevHeight: el.style.height,
-                    prevMinHeight: el.style.minHeight,
-                });
+                this._scrollTargets.push({el, prevOverflow: el.style.overflowY, prevHeight: el.style.height, prevMinHeight: el.style.minHeight});
                 el.style.overflowY = "visible";
                 el.style.height = "auto";
                 el.style.minHeight = "unset";
             }
         });
-
-        // Let the outermost app container scroll
         const appRoot = document.querySelector(".o_web_client") || document.body;
         this._appRoot = appRoot;
         this._prevAppOverflow = appRoot.style.overflowY;
         appRoot.style.overflowY = "auto";
-
         this._prevBodyOverflow = document.body.style.overflowY;
         document.body.style.overflowY = "auto";
     }
@@ -73,9 +60,7 @@ export class DynamicPricingAnalysisDashboard extends Component {
             el.style.height = prevHeight || "";
             el.style.minHeight = prevMinHeight || "";
         });
-        if (this._appRoot) {
-            this._appRoot.style.overflowY = this._prevAppOverflow || "";
-        }
+        if (this._appRoot) this._appRoot.style.overflowY = this._prevAppOverflow || "";
         document.body.style.overflowY = this._prevBodyOverflow || "";
     }
 
@@ -95,7 +80,7 @@ export class DynamicPricingAnalysisDashboard extends Component {
             const data = await this.orm.call(
                 "vraja.ai.card",
                 "action_get_dp_analysis_dashboard_data",
-                [this.state.cardId, this.getFilters()]
+                [this.state.cardId, {}]
             );
             if (requestId === this.requestSeq) {
                 this.state.data = data;
@@ -106,9 +91,7 @@ export class DynamicPricingAnalysisDashboard extends Component {
                 this.state.error = error?.data?.message || error?.message || String(error);
             }
         } finally {
-            if (requestId === this.requestSeq) {
-                this.state.loading = false;
-            }
+            if (requestId === this.requestSeq) this.state.loading = false;
         }
     }
 
@@ -121,94 +104,54 @@ export class DynamicPricingAnalysisDashboard extends Component {
         }
     }
 
-    getFilters() {
-        return {
-            period: this.state.period,
-            limit: Number(this.state.limit),
-            date_from: this.state.dateFrom,
-            date_to: this.state.dateTo,
-        };
-    }
-
-    async setPeriod(period) {
-        if (this.state.period === period || this.state.loading) return;
-        this.state.period = period;
-        if (period !== "custom") await this.loadDashboard();
-    }
-
-    async setLimit(limit) {
-        if (Number(this.state.limit) === Number(limit) || this.state.loading) return;
-        this.state.limit = Number(limit);
-        await this.loadDashboard();
-    }
-
-    async onCustomDateChange(field, ev) {
-        this.state[field] = ev.target.value;
-        if (this.state.period === "custom" && this.state.dateFrom && this.state.dateTo) {
-            await this.loadDashboard();
-        }
-    }
-
-    periodButtonClass(period) {
-        return `dpad-pill-btn ${this.state.period === period ? "active" : ""}`;
-    }
-
-    limitButtonClass(limit) {
-        return `dpad-pill-btn ${Number(this.state.limit) === Number(limit) ? "active" : ""}`;
+    setTab(tab) { this.state.activeTab = tab; }
+    setImpactFilter(f) { this.state.impactFilter = f; this.state.impactSearch = ""; }
+    toggleRunExpand(id) {
+        this.state.expandedRunId = this.state.expandedRunId === id ? null : id;
     }
 
     // ── Data getters ──────────────────────────────────────────────────────────
+    get card()        { return this.state.data.card || {}; }
+    get summary()     { return this.state.data.summary || {}; }
+    get alerts()      { return this.state.data.alerts || {}; }
+    get runHistory()  { return this.state.data.run_history || []; }
+    get segmentData() { return this.state.data.segment_data || []; }
+    get allProductRows() { return this.state.data.product_rows || []; }
 
-    get card() {
-        return this.state.data.card || {};
+    get totalAlerts() {
+        const a = this.alerts;
+        return (a.negative_margin?.length || 0) + (a.dead_stock?.length || 0) +
+               (a.out_of_stock?.length || 0) + (a.overstock?.length || 0);
     }
 
-    get filters() {
-        return this.state.data.filters || {};
+    // AI Impact rows — products with actual AI price change (not hold/skip)
+    get aiImpactRows() {
+        let rows = this.allProductRows.filter(r => r.ai_price_active);
+        const q = (this.state.impactSearch || "").toLowerCase();
+        const f = this.state.impactFilter;
+        if (f === "increase") rows = rows.filter(r => r.decision === "increase");
+        if (f === "decrease") rows = rows.filter(r => r.decision === "decrease");
+        if (f === "hold")     rows = rows.filter(r => r.decision === "hold");
+        if (f === "skip")     rows = rows.filter(r => r.decision === "skip");
+        if (q) rows = rows.filter(r =>
+            (r.product_name || "").toLowerCase().includes(q) ||
+            (r.segment || "").toLowerCase().includes(q)
+        );
+        return rows;
     }
 
-    get summary() {
-        return this.state.data.summary || {};
-    }
-
-    get topProducts() {
-        return this.state.data.top_products || [];
-    }
-
-    get decisionMix() {
-        return this.state.data.decision_mix || [];
-    }
-
-    get segmentData() {
-        return this.state.data.segment_data || [];
-    }
-
-    get atRisk() {
-        return this.state.data.at_risk || [];
-    }
-
-    get topImprovers() {
-        return this.state.data.top_improvers || [];
-    }
-
-    get heroProduct() {
-        return this.topProducts[0] || null;
-    }
-
-    get hasProducts() {
-        return this.topProducts.length > 0;
-    }
-
-    get hasSegments() {
-        return this.segmentData.length > 0;
-    }
-
-    get maxRevenue() {
-        return Math.max(...this.topProducts.map(r => r.revenue || 0), 1);
+    // All product rows with optional search
+    get filteredProductRows() {
+        const q = (this.state.productSearch || "").toLowerCase();
+        if (!q) return this.allProductRows;
+        return this.allProductRows.filter(r =>
+            (r.product_name || "").toLowerCase().includes(q) ||
+            (r.segment || "").toLowerCase().includes(q) ||
+            (r.category || "").toLowerCase().includes(q)
+        );
     }
 
     // ── Formatters ────────────────────────────────────────────────────────────
-
     formatMoney(value) {
         if (!this.moneyFormatter) {
             this.moneyFormatter = new Intl.NumberFormat(undefined, {
@@ -220,53 +163,63 @@ export class DynamicPricingAnalysisDashboard extends Component {
         return this.moneyFormatter.format(value || 0);
     }
 
-    formatNumber(value) {
-        return this.numberFormatter.format(value || 0);
-    }
+    formatNumber(value) { return this.numberFormatter.format(value || 0); }
 
     formatPct(value) {
         const v = value || 0;
-        return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
+        return (v > 0 ? "+" : "") + v.toFixed(2) + "%";
     }
 
-    // ── Decision helpers ──────────────────────────────────────────────────────
+    // ── CSS helpers ───────────────────────────────────────────────────────────
+    marginClass(value) {
+        if (value < 0)  return "dpad-negative";
+        if (value < 15) return "dpad-warning";
+        return "dpad-positive";
+    }
 
-    decisionLabel(decision) {
+    deltaClass(value) {
+        if ((value || 0) > 0) return "dpad-positive";
+        if ((value || 0) < 0) return "dpad-negative";
+        return "dpad-neutral";
+    }
+
+    stockBadgeClass(status) {
         return {
-            increase: "Increase",
-            decrease: "Decrease",
-            hold: "Hold",
-            skip: "Skip",
-            not_analyzed: "Not Analysed"
-        }[decision] || decision;
+            out_of_stock: "dpad-stock-badge dpad-stock-badge--out",
+            low_stock:    "dpad-stock-badge dpad-stock-badge--low",
+            in_stock:     "dpad-stock-badge dpad-stock-badge--in",
+            overstock:    "dpad-stock-badge dpad-stock-badge--over",
+        }[status] || "dpad-stock-badge";
+    }
+
+    stockLabel(status) {
+        return {
+            out_of_stock: "Out of Stock",
+            low_stock:    "Low Stock",
+            in_stock:     "In Stock",
+            overstock:    "Overstock",
+        }[status] || status;
     }
 
     decisionClass(decision) {
-        return `dpad-badge dpad-badge--${decision || "not_analyzed"}`;
+        return `dpad-decision dpad-decision--${decision || "hold"}`;
     }
 
     decisionIcon(decision) {
         return {
-            increase: "fa-arrow-up",
-            decrease: "fa-arrow-down",
-            hold: "fa-minus",
-            skip: "fa-ban",
-            not_analyzed: "fa-question"
-        }[decision] || "fa-question";
+            increase: "fa fa-arrow-up",
+            decrease: "fa fa-arrow-down",
+            hold:     "fa fa-minus",
+            skip:     "fa fa-ban",
+        }[decision] || "fa fa-minus";
     }
 
-    marginDeltaClass(before, after) {
-        if (after > before) return "dpad-positive";
-        if (after < before) return "dpad-negative";
-        return "dpad-neutral";
+    runStatusClass(status) {
+        return status === "success" ? "dpad-run-success" : "dpad-run-failed";
     }
 
-    barWidth(value, max) {
-        return `${Math.max(4, (value / (max || 1)) * 100)}%`;
-    }
-
-    marginBarWidth(margin) {
-        return `${Math.min(100, Math.max(0, margin))}%`;
+    hasAlert(row, flag) {
+        return row.alert_flags && row.alert_flags.includes(flag);
     }
 }
 

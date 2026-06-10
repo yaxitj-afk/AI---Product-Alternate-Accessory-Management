@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
-
 from odoo import models, api, fields
 from odoo.exceptions import UserError
 import json
 import requests
+import base64
+import csv
+import io
 import logging
+import math
 import pytz
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 from collections import defaultdict
 
 _logger = logging.getLogger(__name__)
@@ -14,12 +17,21 @@ _logger = logging.getLogger(__name__)
 
 class VrajaAICard(models.Model):
     _inherit = 'vraja.ai.card'
+    _rec_name = 'action_name'
+
+    action_name = fields.Char(compute='_compute_card_name', store=False)
+
+    def _compute_card_name(self):
+        for rec in self:
+            labels = dict(rec._fields['vraja_common_store']._description_selection(rec.env))
+            rec.action_name = labels.get(rec.vraja_common_store, 'Unnamed')
+
 
     vraja_common_store = fields.Selection(
         selection_add=[('dynamic_pricing', 'Dynamic Pricing with AI')]
     )
 
-    # ── Products ──────────────────────────────────────────────────────────────
+    # Products selected for pricing analysis
     dp_selected_product_ids = fields.Many2many(
         'product.template',
         'vraja_card_dp_product_rel',
@@ -29,7 +41,7 @@ class VrajaAICard(models.Model):
         domain=[('active', '=', True), ('sale_ok', '=', True)],
     )
 
-    # ── Target Pricelists (card level — applied when writing prices) ──────────
+    # Target pricelists — used at the card level when writing prices
     dp_pricelist_ids = fields.Many2many(
         'product.pricelist',
         'vraja_card_dp_pricelist_rel',
@@ -37,19 +49,29 @@ class VrajaAICard(models.Model):
         string='Target Pricelists',
     )
 
-    # ── Competitor URLs ───────────────────────────────────────────────────────
-    dp_competitor_url_1 = fields.Char(string='Competitor URL 1')
-    dp_competitor_url_2 = fields.Char(string='Competitor URL 2')
-    dp_competitor_url_3 = fields.Char(string='Competitor URL 3')
+    # CSV attachment generated from product signals (one per card)
+    dp_csv_attachment_id = fields.Many2one(
+        'ir.attachment',
+        string='Last Products CSV',
+        readonly=True,
+        help='CSV generated from product signals on Save & Next. Uploaded to OpenAI per batch.',
+    )
+
+    # Competitor URLs stored as JSON array of {url: ...} objects
+    dp_competitor_urls_json = fields.Text(
+        string='Competitor URLs JSON',
+        default='[]',
+        help='Dynamic list of competitor URLs as JSON array.',
+    )
 
     # ── Global pricing guardrails (used as defaults for segments) ─────────────
     dp_min_margin_pct = fields.Float(
         string='Min Margin (%)', default=15.0,
-        help='AI will never suggest a price that gives margin below this. Acts as price floor.',
+        help='AI will never suggest a price below this margin. Acts as price floor.',
     )
     dp_max_margin_pct = fields.Float(
         string='Max Margin (%)', default=60.0,
-        help='AI will never suggest a price that gives margin above this. Acts as price ceiling.',
+        help='AI will never suggest a price above this margin. Acts as price ceiling.',
     )
     dp_max_increase_pct = fields.Float(
         string='Max Price Increase (%)', default=10.0,
@@ -83,6 +105,8 @@ class VrajaAICard(models.Model):
         string='AI User Prompt',
         default=lambda self: self._default_dp_ai_prompt(),
     )
+
+    # Segment rules stored as JSON array of segment config objects
     dp_segment_rules_json = fields.Text(string='Segment Rules JSON', default='[]')
 
     # ── Status & results ──────────────────────────────────────────────────────
@@ -103,6 +127,7 @@ class VrajaAICard(models.Model):
         ('walkin', 'Walk-in'),
     ], string='Segment Type')
 
+    # Accumulated AI results JSON (appended batch-by-batch by cron)
     dp_result_json = fields.Text(string='AI Result JSON', readonly=True)
     dp_raw_result = fields.Text(string='AI Raw Result', readonly=True)
     dp_error = fields.Text(string='Error', readonly=True)
@@ -115,15 +140,19 @@ class VrajaAICard(models.Model):
 
     @api.model
     def _default_dp_ai_instruction(self):
+        """
+        System-level instruction sent to the AI model.
+        Defines hard rules the AI must never break when pricing.
+        """
         return """\
 You are a pricing engine. Decide the optimal price for every product × segment pair.
  
 RULES (never break):
 - floor   = cost_price / (1 - min_margin_pct / 100)
 - ceiling = cost_price / (1 - max_margin_pct / 100)
-- price_min = max(floor,   current_price * (1 - max_decrease_pct / 100))
-- price_max = min(ceiling, current_price * (1 + max_increase_pct / 100))
-- suggested_price must be within [price_min, price_max], rounded to 2dp.
+- price min = max(floor,   current_price * (1 - max_decrease_pct / 100))
+- price max = min(ceiling, current_price * (1 + max_increase_pct / 100))
+- suggested_price must be within [price min, price max], rounded to 2dp.
 - suggested_price must always be > cost_price.
 - cost_price = 0 → decision = "skip", reason = "Cost price missing."
 - floor > ceiling → decision = "skip", reason = "Invalid margin band."
@@ -132,65 +161,101 @@ RULES (never break):
 - decision must be: increase / decrease / hold / skip.
 - Return JSON array only. No markdown. No extra text.
 - Every product × segment pair from input must appear in output.
+- Each segment is INDEPENDENT. Recalculate floor, ceiling, price_min, price_max for EACH segment separately.
+- NEVER produce the same suggested_price for two different segments for the same product unless the math forces it.
+- Show your segment-specific calculation in the reason field.
+- Product data is provided in CSV format. Parse it as tabular data.
+- days_no_sale = empty string means the product was never sold (treat as null).
 """
 
     @api.model
     def _default_dp_ai_prompt(self):
+        """
+        User-level prompt template injected at the start of every AI call.
+        Contains the full decision tree the AI follows to pick increase/decrease/hold/skip.
+        """
         return """\
-   Decide the best price for every product × segment pair using all signals together.
- 
-STEP 1 — COMPETITOR (only if URLs given):
-- Estimate market price from URL and product category using your knowledge.
-- If market price found → use it as pricing anchor in Step 2.
-- If market price not found → rely on Step 2 signals only.
- 
-STEP 2 — DECIDE using ALL signals together:
-- stock_status = out_of_stock
-    → hold always. No pricing action when stock is zero.
- 
-- cost_price = 0 or floor > ceiling
-    → skip.
- 
-- competitor anchor found:
-    market > current_price AND stock_status != out_of_stock → increase toward market, cap at price_max.
-    market < current_price                                  → decrease toward market, cap at price_min.
-    market within 5% of current_price                      → ignore competitor, use demand signals below.
- 
-- No competitor anchor OR competitor within 5%:
-    days_no_sale = null (never sold)                        → suggested_price = floor.
-    days_no_sale > dead_stock_days AND overstock            → decrease to price_min.
-    days_no_sale > dead_stock_days AND in_stock             → decrease by 50% of max_decrease_pct.
-    days_no_sale > dead_stock_days AND low_stock            → hold.
-    overstock AND avg_qty_per_day >= 1.0                   → hold.
-    overstock AND avg_qty_per_day < 1.0                    → decrease toward price_min.
-    avg_qty_per_day >= 1.0 AND stock in (in_stock,low_stock)→ increase toward price_max.
-    avg_qty_per_day >= 0.3                                  → hold.
-    avg_qty_per_day < 0.3 AND low_stock                    → hold.
-    avg_qty_per_day < 0.3 AND in_stock                     → decrease slightly (30% of max_decrease_pct).
- 
-STEP 3 — CLAMP:
-- Always clamp final price to [price_min, price_max].
-- Round to 2 decimal places.
- 
-OUTPUT — one object per product × segment:
-[{
-  "product_id": int,
-  "product_name": str,
-  "segment_name": str,
-  "current_price": float,
-  "suggested_price": float,
-  "decision": "increase|decrease|hold|skip",
-  "margin_before": float,
-  "margin_after": float,
-  "reason": "one sentence — key signals used"
-}]
-"""
+    Decide the best price for every product × segment pair.
+    Read the product data from the CSV provided. Consider ALL signals together.
+
+    STEP 1 — MARGIN COMPLIANCE (always run first, overrides everything):
+    - floor   = cost_price / (1 - min_margin_pct / 100)
+    - ceiling = cost_price / (1 - max_margin_pct / 100)
+    - cost_price = 0                  → floor = 0, ceiling = unlimited. Skip margin clamp. Use competitor or
+                                        demand signals to decide price. suggested_price must still be > 0.
+    - current_price < floor           → increase to floor immediately. Stop.
+    - current_price > ceiling         → decrease to ceiling immediately. Stop.
+
+    STEP 2 — COMPETITOR CHECK (only if URLs provided):
+    - Estimate market price from URL and product category.
+    - If market price found AND stock_status != out_of_stock:
+        market > current_price by > 5%  → lean toward increase.
+        market < current_price by > 5%  → lean toward decrease.
+        within 5%                       → ignore competitor, use Step 3.
+    - If market price not found → skip to Step 3.
+
+    STEP 3 — STOCK + DEMAND DECISION:
+    Apply the first matching case:
+
+      STOCK CRITICAL:
+      - out_of_stock (any demand)
+          → hold. Never change price when stock is zero.
+
+      DEAD STOCK (days_no_sale > dead_stock_days):
+      - dead + overstock   → decrease by max_decrease_pct%. Urgent clearance.
+      - dead + in_stock    → decrease by 50% of max_decrease_pct%. Stimulate demand.
+      - dead + low_stock   → hold. Stock already low, no need to push further.
+
+      NEVER SOLD (days_no_sale is empty/null):
+      - overstock          → decrease to floor. No history + excess stock.
+      - in_stock/low_stock → decrease to floor. Price at minimum viable margin.
+
+      OVERSTOCK:
+      - overstock + avg_qty_per_day >= 1.0  → hold. High demand will clear stock naturally.
+      - overstock + avg_qty_per_day 0.3–1.0 → decrease by 25% of max_decrease_pct%.
+      - overstock + avg_qty_per_day < 0.3   → decrease by 50% of max_decrease_pct%.
+
+      DEMAND SIGNALS (normal in_stock or low_stock):
+      - avg_qty_per_day >= 1.0 + in_stock   → increase by max_increase_pct%. Strong demand.
+      - avg_qty_per_day >= 1.0 + low_stock  → increase by 50% of max_increase_pct%. Strong demand but stock tight.
+      - avg_qty_per_day 0.3–1.0             → hold. Moderate steady demand, no action needed.
+      - avg_qty_per_day < 0.3 + low_stock   → hold. Weak demand but stock is also low.
+      - avg_qty_per_day < 0.3 + in_stock    → decrease by 30% of max_decrease_pct%. Weak demand, small stimulation.
+
+      FALLBACK:
+      - No match above → hold.
+
+    STEP 4 — FINAL CLAMP (always run, no exceptions):
+      If cost_price > 0:
+        price_min = max(floor, current_price × (1 - max_decrease_pct / 100))
+        price_max = min(ceiling, current_price × (1 + max_increase_pct / 100))
+      If cost_price = 0:
+        price_min = current_price × (1 - max_decrease_pct / 100)
+        price_max = current_price × (1 + max_increase_pct / 100)
+      suggested_price = clamp(decision price, price_min, price_max)
+      Round to 2 decimal places.
+      suggested_price must always be > 0.
+
+    OUTPUT — one object per product × segment:
+    [{
+      "product_id": int,
+      "product_name": str,
+      "segment_name": str,
+      "current_price": float,
+      "suggested_price": float,
+      "decision": "increase|decrease|hold|skip",
+      "margin_before": float,
+      "margin_after": float,
+      "reason": "one sentence — state which case matched and key signals used"
+    }]
+    """
 
     # =========================================================================
     # DASHBOARD ROUTING
     # =========================================================================
 
     def action_review_dashboard(self):
+        """Routes the card to the Dynamic Pricing dashboard template."""
         action = super().action_review_dashboard()
         self.ensure_one()
         if self.vraja_common_store == 'dynamic_pricing':
@@ -198,16 +263,23 @@ OUTPUT — one object per product × segment:
         return action
 
     def action_log_view(self):
+        """Opens the Dynamic Pricing log list view."""
         action = super().action_log_view()
         if self.vraja_common_store == 'dynamic_pricing':
             action['name'] = 'Dynamic Pricing Logs'
-            action['views'] = [(False, 'list'),
-                               (self.env.ref('dynamic_pricing_with_ai.dynamic_pricing_ai_log_form_view').id, 'form'), ]
-            action['context'] = {'search_default_filter_dynamic_pricing_ai': 1, 'create': False}
+            action['views'] = [
+                (False, 'list'),
+                (self.env.ref('dynamic_pricing_with_ai.dynamic_pricing_ai_log_form_view').id, 'form'),
+            ]
+            action['context'] = {
+                'search_default_filter_dynamic_pricing_ai': 1,
+                'create': False,
+            }
         return action
 
     @api.model
     def action_dp_get_default_card_id(self):
+        """Returns the ID of the first Dynamic Pricing card. Used by JS on dashboard init."""
         card = self.sudo().search(
             [('vraja_common_store', '=', 'dynamic_pricing')], limit=1
         )
@@ -218,6 +290,11 @@ OUTPUT — one object per product × segment:
     # =========================================================================
 
     def _compute_product_signals(self, product):
+        """
+        Computes all pricing signals for a single product.
+        Returns a dict with: product_id, name, category, cost, current_price,
+        avg_qty_per_day, stock_status, qty_on_hand, days_no_sale, dead_stock_days.
+        """
         self.ensure_one()
         history_days = max(self.dp_sales_history_days or 30, 1)
         dead_stock_days = self.dp_dead_stock_days or 45
@@ -241,45 +318,136 @@ OUTPUT — one object per product × segment:
             'dead_stock_days': dead_stock_days,
         }
 
-    def _compute_hint(self, cost, price, avg_qty, stock_status, days_no_sale, dead_stock_days):
-        if cost <= 0 or price <= 0:  # CASE 1 — missing cost or price → skip
-            return 'skip'
+    def _build_products_csv(self, products_data):
+        """
+        Converts a list of product signal dicts into a CSV string.
+        Columns match what the AI prompt expects.
+        """
+        if not products_data:
+            return ""
 
-        if stock_status == 'out_of_stock':  # CASE 2 — out of stock → never change price
-            return 'hold'
+        fieldnames = [
+            'product_id', 'product_name', 'category',
+            'cost_price', 'current_price',
+            'avg_qty_per_day', 'stock_status', 'qty_on_hand',
+            'days_no_sale', 'dead_stock_days',
+        ]
 
-        if days_no_sale is None:  # CASE 3 — never sold before → price at floor
-            return 'decrease'
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in products_data:
+            writer.writerow({f: row.get(f, '') for f in fieldnames})
 
-        if days_no_sale > dead_stock_days and stock_status == 'overstock':  # CASE 4 — dead stock + overstock → aggressive decrease
-            return 'decrease'
+        return output.getvalue()
 
-        if days_no_sale > dead_stock_days and stock_status == 'in_stock':  # CASE 5 — dead stock + in_stock → moderate decrease
-            return 'decrease'
+    def _generate_and_save_csv(self):
+        """
+        Generates fresh product signals for all selected products and
+        saves the result as an ir.attachment (dp_csv_attachment_id).
 
-        if days_no_sale > dead_stock_days and stock_status == 'low_stock':  # CASE 6 — dead stock + low_stock → hold (no need to push further)
-            return 'hold'
+        Called automatically from action_save_dp_dashboard_data (Save & Next).
+        The CSV is then split into batches and each batch CSV is uploaded
+        separately to OpenAI when the cron processes it.
 
-        if stock_status == 'overstock' and avg_qty >= 1.0:  # CASE 7 — overstock + high demand → hold (demand will clear stock)
-            return 'hold'
+        NOTE: The CSV is generated ONCE here. The cron uploads each batch
+        slice of this CSV — one upload per batch.
+        """
+        self.ensure_one()
+        history_days = max(self.dp_sales_history_days or 30, 1)
+        dead_stock_days = self.dp_dead_stock_days or 45
+        date_from = fields.Date.subtract(fields.Date.today(), days=history_days)
 
-        if stock_status == 'overstock':  # CASE 8 — overstock + low/moderate demand → decrease to clear
-            return 'decrease'
+        products_data = []
+        for product in self.dp_selected_product_ids:
+            total_qty, _, _ = self._get_sales_history(product, date_from)
+            avg_qty = round(total_qty / history_days, 4)
+            stock_status, qty_on_hand = self._get_stock_status(product)
+            days_no_sale = self._get_days_no_sale(product)
 
-        if avg_qty >= 1.0:  # CASE 9 — high demand + any healthy stock → increase
-            return 'increase'
+            products_data.append({
+                'product_id': product.id,
+                'product_name': product.name,
+                'category': product.categ_id.complete_name or 'Uncategorized',
+                'cost_price': product.standard_price or 0.0,
+                'current_price': product.list_price or 0.0,
+                'avg_qty_per_day': avg_qty,
+                'stock_status': stock_status,
+                'qty_on_hand': qty_on_hand,
+                'days_no_sale': days_no_sale if days_no_sale is not None else '',
+                'dead_stock_days': dead_stock_days,
+            })
 
-        if avg_qty >= 0.3:  # CASE 10 — moderate demand → hold
-            return 'hold'
+        csv_content = self._build_products_csv(products_data)
+        csv_bytes = csv_content.encode('utf-8')
 
-        if stock_status == 'low_stock':  # CASE 11 — low demand + low stock → hold (no need to decrease)
-            return 'hold'
+        # Delete old attachment if it already exists
+        if self.dp_csv_attachment_id:
+            self.dp_csv_attachment_id.sudo().unlink()
 
-        return 'decrease'  # CASE 12 — low demand + normal stock → small decrease to stimulate
+        attachment = self.env['ir.attachment'].sudo().create({
+            'name': f'dp_products_{fields.Date.today()}.csv',
+            'type': 'binary',
+            'datas': base64.b64encode(csv_bytes).decode('utf-8'),
+            'mimetype': 'text/csv',
+            'res_model': self._name,
+            'res_id': self.id,
+        })
+        self.sudo().write({'dp_csv_attachment_id': attachment.id})
+
+
+    def _upload_csv_to_openai(self, csv_content, api_key):
+        """
+        Uploads a batch CSV slice to the OpenAI Files API (purpose='user_data').
+        Required by the Responses API (/v1/responses) to reference files by ID.
+
+        Returns the file_id string.
+        Raises UserError on any HTTP or API error.
+
+        Called once per batch during cron processing — total uploads = total batches.
+        """
+        csv_bytes = csv_content.encode('utf-8')
+        try:
+            response = requests.post(
+                'https://api.openai.com/v1/files',
+                headers={'Authorization': f'Bearer {api_key}'},
+                files={
+                    'file': ('products.csv', io.BytesIO(csv_bytes), 'text/csv'),
+                    'purpose': (None, 'user_data'),
+                },
+                timeout=60,
+            )
+            response.raise_for_status()
+            file_id = response.json().get('id')
+            if not file_id:
+                raise UserError('OpenAI file upload returned no file_id.')
+
+            return file_id
+        except requests.exceptions.RequestException as e:
+            raise UserError(f'Failed to upload CSV to OpenAI: {e}')
+
+    def _delete_openai_file(self, file_id, api_key):
+        """
+        Deletes the uploaded file from OpenAI after the AI call completes.
+        Keeps OpenAI storage clean — the file is not needed after the response.
+        Logs a warning on failure but does not raise (non-critical cleanup).
+        """
+        try:
+            requests.delete(
+                f'https://api.openai.com/v1/files/{file_id}',
+                headers={'Authorization': f'Bearer {api_key}'},
+                timeout=30,
+            )
+        except Exception as e:
+            raise UserError(f'Error: {e}')
 
     # ── Signal helpers ────────────────────────────────────────────────────────
+
     def _get_sales_history(self, product, date_from):
-        """Returns (total_qty_sold, total_revenue, order_count)."""
+        """
+        Returns (total_qty_sold, total_revenue, order_count) for a product
+        from date_from up to today, counting only confirmed/done sale orders.
+        """
         recent_orders = self.env['sale.order'].sudo().search([
             ('date_order', '>=', date_from),
             ('state', 'in', ['sale', 'done']),
@@ -296,8 +464,13 @@ OUTPUT — one object per product × segment:
     def _get_stock_status(self, product):
         """
         Returns (stock_status_string, qty_on_hand).
-        Compares qty on hand to the reorder point configured for the product.
-        Falls back to 10 units if no reorder rule is set.
+
+        Status logic (compared against reorder point from stock.warehouse.orderpoint,
+        falls back to 10 units if no rule is set):
+          qty <= 0           → out_of_stock
+          qty < reorder      → low_stock
+          qty <= reorder * 3 → in_stock
+          qty > reorder * 3  → overstock
         """
         quants = self.env['stock.quant'].sudo().search([
             ('product_id.product_tmpl_id', '=', product.id),
@@ -322,7 +495,10 @@ OUTPUT — one object per product × segment:
         return status, round(qty, 2)
 
     def _get_days_no_sale(self, product):
-        """Returns number of days since last confirmed sale, or None if never sold."""
+        """
+        Returns the number of days since the last confirmed sale order for the product.
+        Returns None if the product has never been sold.
+        """
         product_ids = product.product_variant_ids.ids
         last_order = self.env['sale.order'].sudo().search([
             ('state', 'in', ['sale', 'done']),
@@ -338,15 +514,22 @@ OUTPUT — one object per product × segment:
     # =========================================================================
 
     def _build_dp_prompt(self, products_data, segments):
+        """
+        Builds the full user prompt for a single AI batch call.
+        Combines: base prompt, business context, competitor URLs,
+        segment rules, product CSV column description, and expected row count.
+
+        products_data: list of data row strings (CSV lines without header) — used only for count.
+        segments: list of segment rule dicts from the batch record.
+        """
         self.ensure_one()
         business = "BUSINESS: " + (self.dp_business_info or "Not provided.")
 
-        urls = [u for u in [
-            self.dp_competitor_url_1,
-            self.dp_competitor_url_2,
-            self.dp_competitor_url_3,
-        ] if u and u.strip()]
-        competitor = ("COMPETITOR URLS:\n" + "\n".join(f"  {i + 1}. {u}" for i, u in enumerate(urls))
+        urls_list = json.loads(self.dp_competitor_urls_json or '[]')
+        urls = [u.get('url', '').strip() for u in urls_list if u.get('url', '').strip()]
+
+        competitor = (
+            "COMPETITOR URLS:\n" + "\n".join(f"  {i + 1}. {u}" for i, u in enumerate(urls))
             if urls else "COMPETITOR URLS: None. Use demand signals only."
         )
 
@@ -359,7 +542,16 @@ OUTPUT — one object per product × segment:
         } for seg in segments]
 
         segments_block = "SEGMENTS:\n" + json.dumps(segment_rows, indent=2)
-        products_block = "PRODUCTS:\n" + json.dumps(products_data, indent=2)
+
+        # Product data description — actual rows are in the attached CSV file
+        products_block = (
+            f"GLOBAL CONFIG: dead_stock_days={self.dp_dead_stock_days or 45} | "
+            f"sales_window_days={self.dp_sales_history_days or 30}\n\n"
+            "PRODUCTS: provided as attached CSV file (products.csv).\n"
+            "Columns: product_id, product_name, category, cost_price, current_price, "
+            "avg_qty_per_day, stock_status, qty_on_hand, days_no_sale, dead_stock_days\n"
+            "days_no_sale is empty = product never sold."
+        )
 
         expected = len(products_data) * len(segment_rows)
         reminder = (
@@ -368,41 +560,62 @@ OUTPUT — one object per product × segment:
             "JSON only."
         )
 
-        return "\n\n".join([self.dp_ai_prompt,business,competitor,segments_block,products_block,reminder,])
+        return "\n\n".join([self.dp_ai_prompt, business, competitor, segments_block, products_block, reminder])
 
     # =========================================================================
     # AI API CALL
     # =========================================================================
 
-    def _call_dp_ai_api(self, system_prompt, user_prompt):
-        """Calls OpenAI /v1/responses and returns (raw_text, total_tokens)."""
+    def _call_dp_ai_api(self, system_prompt, user_prompt, file_id):
+        """
+        Sends a single request to the OpenAI Responses API (/v1/responses).
+        Attaches the uploaded CSV file by file_id so the model can read product data.
+
+        Returns (raw_text_response, total_tokens_used).
+        Raises UserError on timeout, connection error, or unexpected response format.
+        """
         config = self.env['vraja.ai.config'].sudo().search([], limit=1)
         if not config or not config.openai_api_key:
             raise UserError('OpenAI API key is not configured. Please configure it first.')
-        print('prompt :- ====== ', system_prompt, user_prompt)
+
+        payload = {
+            'model': config.llm_model,
+            'instructions': system_prompt,
+            'input': [
+                {
+                    'role': 'user',
+                    'content': [
+                        {'type': 'input_text', 'text': user_prompt},
+                        {'type': 'input_file', 'file_id': file_id},
+                    ],
+                },
+            ],
+        }
 
         try:
             response = requests.post(
                 'https://api.openai.com/v1/responses',
-                json={
-                    'model': config.llm_model,
-                    'input': [
-                        {'role': 'system', 'content': system_prompt},
-                        {'role': 'user', 'content': user_prompt},
-                    ],
-                },
+                json=payload,
                 headers={
                     'Authorization': f'Bearer {config.openai_api_key}',
                     'Content-Type': 'application/json',
                 },
-                timeout=120,
+                timeout=300,
             )
-
+            print('response ====  ', response)
             response.raise_for_status()
             body = response.json()
             tokens = body.get('usage', {}).get('total_tokens', 0)
-            text = body['output'][0]['content'][0]['text']
-            _logger.info('DP AI response tokens: %s', tokens)
+            output = body.get('output', [])
+            text = None
+            for item in output:
+                if item.get('type') == 'message':
+                    for block in item.get('content', []):
+                        if block.get('type') == 'output_text':
+                            text = block.get('text', '')
+                            break
+                if text is not None:
+                    break
             return text, tokens
 
         except requests.exceptions.Timeout:
@@ -420,10 +633,13 @@ OUTPUT — one object per product × segment:
 
     def _parse_dp_ai_response(self, raw_text):
         """
-        Parses the AI JSON array.
-        Returns a list of dicts, one per product × segment row.
+        Parses the AI JSON array response.
+        Strips markdown code fences if present.
+        Returns a list of normalised result dicts, one per product × segment row.
+        Raises UserError if the response is not valid JSON or not a list.
         """
         text = raw_text.strip()
+        # Strip markdown code fences if AI wrapped the output
         if text.startswith('```'):
             text = text.split('\n', 1)[-1]
             text = text.rsplit('```', 1)[0].strip()
@@ -442,13 +658,21 @@ OUTPUT — one object per product × segment:
         for item in items:
             if not item.get('product_id'):
                 continue
+            current_price = float(item.get('current_price') or 0)
+            suggested_price = float(item.get('suggested_price') or 0)
+
             results.append({
                 'product_id': int(item['product_id']),
                 'product_name': item.get('product_name', ''),
                 'segment_name': item.get('segment_name', ''),
-                'current_price': float(item.get('current_price', 0)),
-                'suggested_price': float(item.get('suggested_price', 0)),
-                'decision': item.get('decision', 'hold'),
+                'current_price': current_price,
+                'suggested_price': suggested_price,
+                'decision': (
+                    'skip' if item.get('decision') == 'skip' or suggested_price <= 0
+                    else 'increase' if suggested_price > current_price
+                    else 'decrease' if suggested_price < current_price
+                    else 'hold'
+                ),
                 'margin_before': float(item.get('margin_before', 0)),
                 'margin_after': float(item.get('margin_after', 0)),
                 'reason': item.get('reason', ''),
@@ -460,7 +684,11 @@ OUTPUT — one object per product × segment:
     # =========================================================================
 
     def get_dp_dashboard_data(self):
-        """Returns all data needed to populate the Dynamic Pricing dashboard."""
+        """
+        Returns all data needed to populate the Dynamic Pricing wizard dashboard.
+        Called by JS on initial load and after every save.
+        Includes: card config, segment rules, selected products, batches, and CSV info.
+        """
         self.ensure_one()
         segment_field = self.fields_get(['dp_segment_type_options'])
         segment_options = segment_field.get('dp_segment_type_options', {}).get('selection', [])
@@ -481,10 +709,14 @@ OUTPUT — one object per product × segment:
             'dp_business_info': self.dp_business_info or '',
             'dp_result_json': self.dp_result_json or '',
             'dp_error': self.dp_error or '',
-            'dp_competitor_url_1': self.dp_competitor_url_1 or '',
-            'dp_competitor_url_2': self.dp_competitor_url_2 or '',
-            'dp_competitor_url_3': self.dp_competitor_url_3 or '',
+            'dp_competitor_urls': json.loads(self.dp_competitor_urls_json or '[]'),
             'dp_segment_rules': json.loads(self.dp_segment_rules_json or '[]'),
+            'dp_csv_attachment_id': self.dp_csv_attachment_id.id if self.dp_csv_attachment_id else False,
+            'dp_batches': self._dp_get_batches(),
+            'dp_csv_attachment_url': (
+                f'/web/content/{self.dp_csv_attachment_id.id}?download=true'
+                if self.dp_csv_attachment_id else ''
+            ),
             'dp_segment_type_options': [
                 {'value': v, 'label': l} for v, l in segment_options
             ],
@@ -498,6 +730,18 @@ OUTPUT — one object per product × segment:
         }
 
     def action_save_dp_dashboard_data(self, values):
+        """
+        Called when the user clicks 'Save & Next' on Step 4 (Configure Settings).
+        Persists all wizard form values, regenerates the product CSV,
+        creates fresh batches (clearing old ones and Step 6 results),
+        and syncs the cron job schedule.
+
+        Flow triggered by this method:
+          1. Write scalar fields + M2M relations
+          2. _generate_and_save_csv()    → fresh product signals CSV saved as attachment
+          3. _create_dp_batches()        → old batches + dp_result_json cleared; new draft batches created
+          4. Cron schedule synced if dp_auto_apply or dp_cron_time changed
+        """
         self.ensure_one()
 
         scalar_fields = [
@@ -505,8 +749,7 @@ OUTPUT — one object per product × segment:
             'dp_max_increase_pct', 'dp_max_decrease_pct',
             'dp_dead_stock_days', 'dp_sales_history_days',
             'dp_auto_apply', 'dp_business_info',
-            'dp_competitor_url_1', 'dp_competitor_url_2', 'dp_competitor_url_3',
-            'dp_cron_time',
+            'dp_competitor_urls_json', 'dp_cron_time',
         ]
         write_vals = {k: v for k, v in values.items() if k in scalar_fields}
 
@@ -517,7 +760,7 @@ OUTPUT — one object per product × segment:
 
         if 'dp_segment_rules' in values:
             rules = values['dp_segment_rules']
-            # Assign a simple incremental id to each rule if missing
+            # Assign a simple incremental id to any rule missing one
             for i, r in enumerate(rules):
                 if not r.get('id'):
                     r['id'] = i + 1
@@ -525,119 +768,146 @@ OUTPUT — one object per product × segment:
 
         self.sudo().write(write_vals)
 
-        # Sync cron job active state and next call time,  Calling cron based on the timeing
+        # Regenerate CSV and create batches whenever products are configured
+        if values.get('create_batches') and self.dp_selected_product_ids:
+            self._generate_and_save_csv()
+            self._create_dp_batches(values.get('dp_segment_rules', []))
 
+        # Sync cron job — update active flag and next call time
         if 'dp_auto_apply' in write_vals or 'dp_cron_time' in write_vals:
-            cron = self.env.ref(
-                'dynamic_pricing_with_ai.ir_cron_dp_run_analysis',
-                raise_if_not_found=False
+            schedule_cron = self.env.ref(
+                'dynamic_pricing_with_ai.ir_cron_dp_schedule_trigger',
+                raise_if_not_found=False,
             )
-            if cron:
-                cron_vals = {'active': self.dp_auto_apply}
+            cron_vals = {'active': bool(self.dp_auto_apply)}
 
+            if self.dp_auto_apply:
                 time_str = self.dp_cron_time or '02:00 AM'
-                try:
-                    t = datetime.strptime(time_str.strip(), '%I:%M %p')
-                    user_tz = self.env.user.tz or 'UTC'
-                    local_tz = pytz.timezone(user_tz)
+                t = datetime.strptime(time_str.strip(), '%I:%M %p')
+                user_tz = self.env.user.tz or 'UTC'
+                local_tz = pytz.timezone(user_tz)
+                now_local = datetime.now(local_tz)
+                next_call_local = now_local.replace(
+                    hour=t.hour, minute=t.minute, second=0, microsecond=0
+                )
+                if next_call_local <= now_local:
+                    next_call_local += timedelta(days=1)
+                next_call_utc = next_call_local.astimezone(pytz.utc).replace(tzinfo=None)
+                cron_vals['nextcall'] = next_call_utc
 
-                    now_local = datetime.now(local_tz)
-                    next_call_local = now_local.replace(
-                        hour=t.hour, minute=t.minute, second=0, microsecond=0
-                    )
 
-                    # If time already passed today, schedule for tomorrow
-                    if next_call_local <= now_local:
-                        next_call_local += timedelta(days=1)
-
-                    # Convert to UTC for Odoo
-                    next_call_utc = next_call_local.astimezone(pytz.utc).replace(tzinfo=None)
-                    cron_vals['nextcall'] = next_call_utc
-
-                except Exception as e:
-                    _logger.warning('DP: Could not parse cron time "%s": %s', time_str, e)
-
-                cron.sudo().write(cron_vals)
+            if schedule_cron:
+                schedule_cron.sudo().write(cron_vals)
 
         return {'success': True}
 
-    # =========================================================================
-    # RUN AI ANALYSIS
-    # segments live in the JS session and are passed as a parameter.
-    # =========================================================================
-
-    def action_run_dynamic_pricing(self, segments=None):
+    def _dp_get_batches(self):
         """
-        Called from the JS dashboard Run AI button.
-
-        segments : list of dicts from JS, each with:
-            {   segment_name     : str,
-                pricelist_ids    : [int, ...],
-                min_margin_pct   : float,
-                max_margin_pct   : float,
-                max_increase_pct : float,
-                max_decrease_pct : float,     }
-
-        Flow:
-            1. Validate products and segments
-            2. Compute signals (sales history + stock status + days no sale)
-            3. Build the full prompt (products × segments + competitor URLs)
-            4. Call OpenAI
-            5. Parse and store the flat result list as JSON
+        Returns the batch list for the Step 5 display.
+        Each batch shows: id, name, state, index, totals, product count, and any error.
         """
         self.ensure_one()
-        self.sudo().write({'dp_status': 'running', 'dp_error': False})
+        batches = self.env['vraja.dp.batch'].sudo().search(
+            [('card_id', '=', self.id)],
+            order='batch_index asc',
+        )
+        return [{
+            'id': b.id,
+            'name': b.name,
+            'state': b.state,
+            'batch_index': b.batch_index,
+            'total_batches': b.total_batches,
+            'products_count': b.products_count,
+            'error_message': b.error_message or '',
+        } for b in batches]
 
-        try:
-            if not self.dp_selected_product_ids:
-                raise UserError(
-                    'No products selected. Please select products in Step 2 first.'
-                )
+    def _create_dp_batches(self, segments=None):
+        """
+        Creates fresh draft batch records from the saved CSV attachment.
+        Called automatically from action_save_dp_dashboard_data.
 
-            segments = segments or []
-            if not segments:
-                raise UserError(
-                    'No segments defined. Please add at least one segment in Step 3.'
-                )
+        Before creating new batches:
+          - Deletes ALL existing batches for this card
+          - Clears dp_result_json (Step 6) so old analysis is removed
 
-            # Step 1 — compute signals for every selected product
-            products_data = [
-                self._compute_product_signals(p)
-                for p in self.dp_selected_product_ids
-            ]
+        Batch size: up to 100 product×segment rows per batch.
+        Each batch stores its own CSV slice and segment rules.
 
-            # Step 2 — build prompt
-            user_prompt = self._build_dp_prompt(products_data, segments)
+        CSV upload happens LATER — one upload per batch in the cron, not here.
+        """
+        self.ensure_one()
 
-            # Step 3 — call AI
-            raw_result, tokens = self._call_dp_ai_api(
-                self.dp_ai_instruction or '', user_prompt
-            )
+        # Clear old batches and Step 6 results before creating new ones
+        self.env['vraja.dp.batch'].sudo().search(
+            [('card_id', '=', self.id)]
+        ).unlink()
+        self.sudo().write({
+            'dp_result_json': False,
+            'dp_status': 'idle',
+            'dp_last_tokens': 0,
+        })
 
-            # Step 4 — parse and store
-            parsed = self._parse_dp_ai_response(raw_result)
-            self.sudo().write({
-                'dp_raw_result': raw_result,
-                'dp_result_json': json.dumps(parsed, ensure_ascii=False, indent=2),
-                'dp_status': 'done',
-                'dp_analyzed_on': fields.Date.today(),
-                'dp_last_tokens': tokens,
+        segments = segments or json.loads(self.dp_segment_rules_json or '[]')
+        if not segments:
+            return
+
+        if not self.dp_csv_attachment_id:
+            return
+
+        csv_bytes = base64.b64decode(self.dp_csv_attachment_id.datas)
+        csv_content = csv_bytes.decode('utf-8')
+
+        csv_lines = [l for l in csv_content.splitlines() if l.strip()]
+        if len(csv_lines) < 2:
+            return
+
+        header = csv_lines[0]
+        data_rows = csv_lines[1:]
+        total_products = len(data_rows)
+        segment_count = len(segments)
+
+        # Calculate how many products fit per batch (target: 100 product×segment rows)
+        BATCH_SIZE = 100
+        products_per_batch = math.ceil(BATCH_SIZE / segment_count)
+
+        batches = [
+            data_rows[i:i + products_per_batch]
+            for i in range(0, total_products, products_per_batch)
+        ]
+        total_batches = len(batches)
+        segments_json = json.dumps(segments)
+
+        for idx, batch_rows in enumerate(batches):
+            # Each batch gets its own CSV slice (header + data rows)
+            batch_csv = header + '\n' + '\n'.join(batch_rows)
+            self.env['vraja.dp.batch'].sudo().create({
+                'name': f'Batch {idx + 1} of {total_batches}',
+                'card_id': self.id,
+                'state': 'draft',
+                'batch_index': idx + 1,
+                'total_batches': total_batches,
+                'products_count': len(batch_rows),
+                'csv_rows': batch_csv,
+                'segment_rules_json': segments_json,
             })
 
-
-        except UserError as e:
-            self.sudo().write({'dp_status': 'error', 'dp_error': str(e)})
-            self._create_dp_log(status='failed', message=str(e))
-            self.env.cr.commit()
-            raise
-
-        return True
-
     # =========================================================================
-    # APPLY PRICING — writes to pricelists only, never to product fields
+    # APPLY PRICING — writes suggested prices to pricelists only
     # =========================================================================
 
-    def action_apply_dynamic_pricing(self, segments=None):
+    def action_apply_dynamic_pricing(self, segments=None, active_rows=None):
+        """
+        Writes AI suggested prices to the pricelists mapped to each segment.
+        Called when the user clicks 'Apply' on Step 6.
+
+        segments: list of segment rule dicts (contains segment_name → pricelist_ids mapping).
+        active_rows: filtered list of result rows to apply (deleted rows excluded by JS).
+
+        For each row:
+          - 'hold' and 'skip' decisions are skipped.
+          - Each pricelist mapped to the segment gets an upserted pricelist item.
+        Returns {'applied': N, 'skipped': N, 'errors': N}.
+        """
         self.ensure_one()
 
         if not self.dp_result_json:
@@ -645,13 +915,13 @@ OUTPUT — one object per product × segment:
 
         segments = segments or []
 
-        # Build a quick lookup: segment_name → list of pricelist IDs
-        seg_map = {
-            seg.get('customer_type', ''): seg.get('pricelist_ids', [])
-            for seg in segments
-        }
+        # Build lookup: segment_name → list of pricelist IDs
+        seg_map = {}
+        for seg in segments:
+            key = seg.get('customer_type', '').strip().lower()
+            seg_map[key] = seg.get('pricelist_ids', [])
 
-        parsed = json.loads(self.dp_result_json)
+        parsed = active_rows if active_rows is not None else json.loads(self.dp_result_json)
         applied = 0
         skipped = 0
         errors = 0
@@ -668,35 +938,29 @@ OUTPUT — one object per product × segment:
 
             product = self.env['product.template'].browse(int(product_id))
 
-            # ── Skip if product no longer exists in DB ─────────────────────────
+            # Skip if product no longer exists
             if not product.exists():
                 continue
 
-            # ── Skip "hold" decisions and zero prices ──────────────────────────
-            if decision == 'hold' or not suggested_price:
+            # Skip hold/skip decisions and zero prices
+            if decision in ('hold', 'skip') or not suggested_price:
                 skipped += 1
                 continue
 
-            # ── Skip if no pricelist mapped for this segment ───────────────────
+            # Skip if no pricelist is mapped for this segment
             pricelist_ids = seg_map.get(segment_name, [])
             if not pricelist_ids:
                 errors += 1
                 continue
 
-            # ── Write to every pricelist that belongs to this segment ──────────
-            # Track if any pricelist write failed for this row
             row_has_error = False
-
             for pl_id in pricelist_ids:
                 pricelist = self.env['product.pricelist'].browse(pl_id)
-
-                # Skip if pricelist no longer exists in DB
-                if not pricelist.exists():
+                if not pricelist:
                     continue
-
                 try:
                     self._upsert_pricelist_item(pricelist, product, suggested_price)
-                except Exception:
+                except Exception as e:
                     row_has_error = True
                     errors += 1
 
@@ -706,19 +970,22 @@ OUTPUT — one object per product × segment:
             applied += 1
             log_lines.append(self._build_log_line(product, row, 'success'))
 
-        # ── Reset card status ──────────────────────────────────────────────────
+        # Reset card status after applying
         self.sudo().write({'dp_status': 'idle'})
 
-        # ── Create one DB log record with only successfully applied lines ───────
+        # Create one DB log record for all successfully applied lines
         if log_lines:
-            self._create_dp_log(status='success',
-                                message=f'Applied AI pricing to {applied} product–segment combination(s).',
-                                log_lines=log_lines, total_tokens=self.dp_last_tokens or 0, applied=True,
-                                pricelists_updated=applied, )
+            self._create_dp_log(status='success',message=f'Applied AI pricing to {applied} product–segment combination(s).',
+                log_lines=log_lines,total_tokens=self.dp_last_tokens or 0,applied=True,pricelists_updated=applied,)
 
         return {'applied': applied, 'skipped': skipped, 'errors': errors}
 
     def _upsert_pricelist_item(self, pricelist, product, suggested_price):
+        """
+        Creates or updates the AI pricelist item for a product on a pricelist.
+        Uses 'fixed' price when suggested_price >= list_price, 'percentage' otherwise.
+        Only touches records flagged with is_ai_price=True to avoid overwriting manual entries.
+        """
         original_price = product.list_price
 
         if suggested_price >= original_price:
@@ -726,13 +993,11 @@ OUTPUT — one object per product × segment:
                 'compute_price': 'fixed',
                 'fixed_price': suggested_price,
             }
-
         else:
             if original_price > 0:
                 percent_price = round((1.0 - suggested_price / original_price) * 100.0, 4)
             else:
                 percent_price = 0.0
-
             price_vals = {
                 'compute_price': 'percentage',
                 'percent_price': percent_price,
@@ -747,19 +1012,21 @@ OUTPUT — one object per product × segment:
         if existing_ai_line:
             existing_ai_line.sudo().write(price_vals)
         else:
-            create_vals = {'pricelist_id': pricelist.id,
-                           'product_tmpl_id': product.id,
-                           'applied_on': '1_product',
-                           'is_ai_price': True,
-                           **price_vals,
-                           }
-            new_line = self.env['product.pricelist.item'].sudo().create(create_vals)
+            create_vals = {
+                'pricelist_id': pricelist.id,
+                'product_tmpl_id': product.id,
+                'applied_on': '1_product',
+                'is_ai_price': True,
+                **price_vals,
+            }
+            self.env['product.pricelist.item'].sudo().create(create_vals)
 
     # =========================================================================
     # LOGGING HELPERS
     # =========================================================================
 
     def _create_dp_log(self, status, message='', total_tokens=0, log_lines=None, applied=False, pricelists_updated=0):
+        """Creates a vraja.ai.log record with optional line_ids for the dynamic pricing store."""
         self.ensure_one()
         log_vals = {
             'vraja_common_log_store': 'dynamic_pricing',
@@ -774,8 +1041,7 @@ OUTPUT — one object per product × segment:
         return self.env['vraja.ai.log'].sudo().create(log_vals)
 
     def _build_log_line(self, product, result, status, old_price=None):
-        _logger.info('DP _build_log_line result: %s', result)  # ADD TEMPORARILY
-
+        """Builds a single log line dict for _create_dp_log."""
         return {
             'dp_product_id': product.id,
             'dp_product_name': product.name,
@@ -785,127 +1051,384 @@ OUTPUT — one object per product × segment:
             'dp_decision': result.get('decision', 'hold'),
             'dp_margin_before': result.get('margin_before', 0),
             'dp_margin_after': result.get('margin_after', 0),
-            'dp_reason': result.get('reason', ''),
             'dp_status': status,
         }
 
     # =========================================================================
-    # CRON
+    # CRON — single entry point for all batch processing
     # =========================================================================
 
     @api.model
-    def action_cron_dp_run_analysis(self):
+    def action_cron_dp_run_analysis(self, batch_id=None):
         """
-        Scheduled action. Segments are not stored in Odoo in this design —
-        extend this method to pass stored segments when that feature is added.
+        Scheduled action — processes all draft batches in order.
+        When batch_id is provided (manual run), processes only that specific batch.
+        """
+        config = self.env['vraja.ai.config'].sudo().search([], limit=1)
+        if not config or not config.openai_api_key:
+            return
+
+        if batch_id:
+            batches = self.env['vraja.dp.batch'].sudo().browse(batch_id)
+        else:
+            batches = self.env['vraja.dp.batch'].sudo().search([
+                ('state', '=', 'draft'),
+            ], order='card_id asc, batch_index asc')
+
+        if not batches:
+
+            return
+
+        for batch in batches:
+            card = batch.card_id
+            file_id = None
+
+            try:
+                batch.sudo().write({'state': 'running', 'error_message': False})
+                self.env.cr.commit()
+
+                segments = json.loads(batch.segment_rules_json or '[]')
+
+                file_id = card._upload_csv_to_openai(batch.csv_rows, config.openai_api_key)
+                batch.sudo().write({'file_id': file_id})
+
+                batch_rows = [l for l in batch.csv_rows.splitlines()[1:] if l.strip()]
+                user_prompt = card._build_dp_prompt(batch_rows, segments)
+
+                raw_result, tokens = card._call_dp_ai_api(card.dp_ai_instruction or '',user_prompt,file_id=file_id,)
+
+                card._delete_openai_file(file_id, config.openai_api_key)
+                file_id = None
+
+                parsed = card._parse_dp_ai_response(raw_result)
+
+                existing = json.loads(card.dp_result_json or '[]')
+                existing.extend(parsed)
+                card.sudo().write({
+                    'dp_result_json': json.dumps(existing, ensure_ascii=False, indent=2),
+                    'dp_analyzed_on': fields.Date.today(),
+                    'dp_last_tokens': (card.dp_last_tokens or 0) + tokens,
+                })
+
+                batch.sudo().write({
+                    'state': 'done',
+                    'file_id': False,
+                    'result_json': json.dumps(parsed, ensure_ascii=False, indent=2),
+                })
+                self.env.cr.commit()
+                remaining = self.env['vraja.dp.batch'].sudo().search_count([
+                    ('card_id', '=', card.id),
+                    ('state', '!=', 'done'),
+                ])
+                if not remaining:
+                    card.sudo().write({'dp_status': 'done'})
+                    self.env.cr.commit()
+
+
+            except Exception as e:
+                batch.sudo().write({
+                    'state': 'draft',
+                    'error_message': str(e),
+                    'file_id': False,
+                })
+                self.env.cr.commit()
+                if card and len(card) == 1:
+                    card._create_dp_log(status='failed',message=f'Batch {batch.name} failed: {str(e)}',log_lines=False,
+                        total_tokens=card.dp_last_tokens or 0,applied=False,pricelists_updated=0,)
+            finally:
+                if file_id:
+                    card._delete_openai_file(file_id, config.openai_api_key)
+
+    @api.model
+    def action_cron_dp_schedule_trigger(self):
+        """
+        Runs daily at dp_cron_time for cards with dp_auto_apply=True.
+        1. Auto-applies previous batch results if analysis is done
+        2. Regenerates CSV with fresh product signals
+        3. Creates fresh draft batches for Cron 1 to pick up
         """
         card = self.sudo().search([
             ('vraja_common_store', '=', 'dynamic_pricing'),
-            ('vraja_common_card_active', '=', True),
             ('dp_auto_apply', '=', True),
-        ], limit=1)
+            ('vraja_common_card_active', '=', True),
+            ('dp_selected_product_ids', '!=', False),
+        ])
 
         if not card:
+            print('hello my name  is yaxit ')
             return
 
+        print('card avaialble')
+
         segments = json.loads(card.dp_segment_rules_json or '[]')
-        card.action_run_dynamic_pricing(segments=segments)
-        if card.dp_status == 'done':
-            card.action_apply_dynamic_pricing(segments=segments)
+        if not segments:
+            return
+
+        # Skip if previous batches are still pending
+        # pending = self.env['vraja.dp.batch'].sudo().search_count([
+        #     ('card_id', '=', card.id),
+        #     ('state', 'in', ['draft', 'running']),
+        # ])
+        # if pending:
+        #     return
+
+        # Auto-apply previous results if analysis is done
+        if card.dp_result_json:
+            card.action_apply_dynamic_pricing(segments=segments,active_rows=json.loads(card.dp_result_json),)
+
+        # card._generate_and_save_csv()
+        # card._create_dp_batches(segments)
+
 
     # =========================================================================
-    # Dashboard Code
+    # ANALYSIS DASHBOARD DATA HELPERS
     # =========================================================================
-    def action_open_dp_analysis_dashboard(self):
-        """Open the rich analysis dashboard without changing the existing review flow."""
-        self.ensure_one()
+
+    def _dp_get_analysis_dates(self, filters):
+        """
+        Returns (date_from, date_to) as Odoo Date objects based on the
+        period string from the JS filter bar.
+
+        Supported periods: last_7_days, last_30_days, last_90_days, custom.
+        Falls back to last_30_days for unknown periods or missing custom dates.
+        """
+        today = fields.Date.today()
+        period = (filters or {}).get('period', 'last_7_days')
+
+        if period == 'last_7_days':
+            return fields.Date.subtract(today, days=7), today
+        elif period == 'last_30_days':
+            return fields.Date.subtract(today, days=30), today
+        elif period == 'last_90_days':
+            return fields.Date.subtract(today, days=90), today
+        elif period == 'custom':
+            raw_from = (filters or {}).get('date_from', '')
+            raw_to = (filters or {}).get('date_to', '')
+            try:
+                date_from = fields.Date.from_string(raw_from) if raw_from else fields.Date.subtract(today, days=30)
+                date_to = fields.Date.from_string(raw_to) if raw_to else today
+                if date_from > date_to:
+                    date_from, date_to = date_to, date_from
+            except Exception:
+                date_from = fields.Date.subtract(today, days=30)
+                date_to = today
+            return date_from, date_to
+        else:
+            return fields.Date.subtract(today, days=30), today
+
+    def _dp_get_sales_by_product(self, product_tmpl_ids, date_from, date_to):
+        """
+        Returns {product_template_id: {qty_sold, revenue, orders}} for all
+        given product template IDs within [date_from, date_to].
+        Only confirmed/done sale orders are counted.
+        """
+        if not product_tmpl_ids:
+            return {}
+
+        orders = self.env['sale.order'].sudo().search([
+            ('date_order', '>=', fields.Datetime.from_string(str(date_from))),
+            ('date_order', '<=', fields.Datetime.from_string(str(date_to) + ' 23:59:59')),
+            ('state', 'in', ['sale', 'done']),
+        ])
+
+        if not orders:
+            return {pid: {'qty_sold': 0.0, 'revenue': 0.0, 'orders': 0}
+                    for pid in product_tmpl_ids}
+
+        lines = self.env['sale.order.line'].sudo().search([
+            ('order_id', 'in', orders.ids),
+            ('product_id.product_tmpl_id', 'in', product_tmpl_ids),
+        ])
+
+        result = {pid: {'qty_sold': 0.0, 'revenue': 0.0, 'orders': set()}
+                  for pid in product_tmpl_ids}
+
+        for line in lines:
+            tmpl_id = line.product_id.product_tmpl_id.id
+            if tmpl_id not in result:
+                continue
+            qty = line.product_uom_qty or 0.0
+            result[tmpl_id]['qty_sold'] += qty
+            result[tmpl_id]['revenue'] += qty * (line.price_unit or 0.0)
+            result[tmpl_id]['orders'].add(line.order_id.id)
+
         return {
-            'type': 'ir.actions.client',
-            'tag': 'dynamic_pricing_analysis_dashboard',
-            'target': 'current',
-            'params': {
-                'card_id': self.id,
-                'store': self.vraja_common_store,
-            },
+            pid: {
+                'qty_sold': round(vals['qty_sold'], 4),
+                'revenue': round(vals['revenue'], 4),
+                'orders': len(vals['orders']),
+            }
+            for pid, vals in result.items()
         }
+
+    def _dp_get_run_history_with_lines(self):
+        """
+        Returns the last 10 Dynamic Pricing log records with full line detail
+        for the run history drill-down in the analysis dashboard.
+        """
+        self.ensure_one()
+        logs = self.env['vraja.ai.log'].sudo().search([
+            ('vraja_common_log_store', '=', 'dynamic_pricing'),
+        ], order='create_date desc', limit=10)
+
+        history = []
+        for log in logs:
+            lines = []
+            for line in log.line_ids:
+                lines.append({
+                    'product_name': line.dp_product_name or '',
+                    'segment': line.dp_segment_name or '',
+                    'old_price': round(line.dp_old_price or 0.0, 2),
+                    'ai_price': round(line.dp_ai_suggested_price or 0.0, 2),
+                    'decision': line.dp_decision or 'hold',
+                    'margin_before': round(line.dp_margin_before or 0.0, 2),
+                    'margin_after': round(line.dp_margin_after or 0.0, 2),
+                })
+            history.append({
+                'id': log.id,
+                'date': str(log.create_date)[:16] if log.create_date else '',
+                'status': log.status,
+                'total_products': log.dp_total_products or 0,
+                'total_tokens': log.dp_total_tokens or 0,
+                'applied': log.dp_applied,
+                'pricelists_updated': log.dp_pricelists_updated or 0,
+                'increase_count': log.dp_increase_count or 0,
+                'decrease_count': log.dp_decrease_count or 0,
+                'hold_count': log.dp_hold_count or 0,
+                'skip_count': log.dp_skip_count or 0,
+                'lines': lines,
+            })
+        return history
 
     @api.model
     def action_get_dp_analysis_dashboard_data(self, card_id, filters=None):
         """
-        Return dynamic dashboard data for the selected date window and row limit.
-        Reads live AI result JSON + live sales data each call so filters work instantly.
+        Returns all data for the Analysis Dashboard (separate from the wizard dashboard).
+        Data is sourced from the latest applied log and its line_ids.
+        Includes: summary KPIs, per-product rows, alerts, run history, segment performance.
         """
-        filters = filters or {}
         card = self.sudo().browse(card_id)
         if not card.exists() or card.vraja_common_store != 'dynamic_pricing':
             return {}
 
-        date_from, date_to = self._dp_get_analysis_dates(filters)
-        limit = int(filters.get('limit') or 5)
-        limit = limit if limit in (5, 10, 15) else 5
+        # Use the latest applied log; fall back to latest log with any lines
+        latest_log = self.env['vraja.ai.log'].sudo().search([
+            ('vraja_common_log_store', '=', 'dynamic_pricing'),
+            ('dp_applied', '=', True),
+        ], order='create_date desc', limit=1)
 
-        # Parse AI result JSON — it's a flat LIST of product×segment dicts
-        ai_rows = card._dp_parse_analysis_results()
+        if not latest_log:
+            latest_log = self.env['vraja.ai.log'].sudo().search([
+                ('vraja_common_log_store', '=', 'dynamic_pricing'),
+            ], order='create_date desc', limit=1)
 
-        # All unique product IDs from AI results
-        selected_products = card.dp_selected_product_ids.sudo()
-        selected_ids = selected_products.ids or list({r['product_id'] for r in ai_rows if r.get('product_id')})
+        if not latest_log or not latest_log.line_ids:
+            return self._dp_empty_dashboard(card)
 
-        # Sales data keyed by product template ID
-        sales_by_product = card._dp_get_sales_by_product(selected_ids, date_from, date_to)
+        dead_stock_days = card.dp_dead_stock_days or 45
 
-        # Build enriched rows — one per product×segment
-        enriched_rows = []
-        for row in ai_rows:
-            pid = row.get('product_id')
-            if not pid:
-                continue
-            sales = sales_by_product.get(int(pid), {})
-            current_price = float(row.get('current_price') or 0.0)
-            suggested_price = float(row.get('suggested_price') or 0.0)
-            delta = suggested_price - current_price if suggested_price else 0.0
-            delta_pct = (delta / current_price * 100.0) if current_price else 0.0
+        # Collect unique product template IDs from log lines
+        product_tmpl_ids = list({
+            line.dp_product_id.id
+            for line in latest_log.line_ids
+            if line.dp_product_id
+        })
 
-            enriched_rows.append({
-                'product_id': pid,
-                'product_name': row.get('product_name', ''),
-                'segment_name': row.get('segment_name', ''),
-                'qty_sold': round(sales.get('qty_sold', 0.0), 2),
-                'revenue': round(sales.get('revenue', 0.0), 2),
-                'current_price': round(current_price, 2),
-                'suggested_price': round(suggested_price, 2),
-                'price_delta': round(delta, 2),
-                'price_delta_pct': round(delta_pct, 2),
-                'decision': row.get('decision') or 'not_analyzed',
-                'margin_before': round(float(row.get('margin_before') or 0.0), 2),
-                'margin_after': round(float(row.get('margin_after') or 0.0), 2),
-                'reason': row.get('reason') or '',
-            })
+        # Get live stock status for all products in the log
+        stock_data = card._dp_get_live_stock(product_tmpl_ids)
 
-        # Sort by revenue + price delta for ranking
-        enriched_rows.sort(
-            key=lambda r: (r['revenue'], abs(r['price_delta_pct']), r['qty_sold']),
-            reverse=True
-        )
-        top_rows = enriched_rows[:limit]
+        # Build product rows and alert collections
+        product_rows = []
+        alerts = {
+            'negative_margin': [],
+            'dead_stock': [],
+            'out_of_stock': [],
+            'overstock': [],
+        }
 
-        # Build segment breakdown
-        segment_data = card._dp_build_segment_data(enriched_rows)
+        # Group lines by product to show all segments per product
+        lines_by_product = defaultdict(list)
+        for line in latest_log.line_ids:
+            if line.dp_product_id:
+                lines_by_product[line.dp_product_id.id].append(line)
 
-        # Build at-risk products (low margin after AI)
-        at_risk = sorted(
-            [r for r in enriched_rows if 0 < r['margin_after'] < 15],
-            key=lambda r: r['margin_after']
-        )[:5]
+        for product_tmpl_id, lines in lines_by_product.items():
+            product = lines[0].dp_product_id
+            cost = product.standard_price or 0.0
+            original_price = product.list_price or 0.0
+            category = product.categ_id.complete_name or 'Uncategorized'
+            stock = stock_data.get(product_tmpl_id, {'status': 'unknown', 'qty': 0.0})
 
-        # Build top margin improvers
-        top_improvers = sorted(
-            [r for r in enriched_rows if r['margin_after'] > r['margin_before']],
-            key=lambda r: r['margin_after'] - r['margin_before'],
-            reverse=True
-        )[:5]
+            alert_flags = []
+            if cost > 0 and original_price > 0 and original_price < cost:
+                alert_flags.append('negative_margin')
+                alerts['negative_margin'].append(product.name)
+            if stock['status'] == 'out_of_stock':
+                alert_flags.append('out_of_stock')
+                alerts['out_of_stock'].append(product.name)
+            if stock['status'] == 'overstock':
+                alert_flags.append('overstock')
+                alerts['overstock'].append(product.name)
 
-        summary = card._dp_build_analysis_summary(enriched_rows, top_rows, ai_rows)
+            for line in lines:
+                ai_price = line.dp_ai_suggested_price or 0.0
+                old_price = line.dp_old_price or original_price
+                price_delta = round(ai_price - old_price, 2) if ai_price > 0 else 0.0
+                price_delta_pct = round(
+                    price_delta / old_price * 100, 2
+                ) if old_price > 0 and ai_price > 0 else 0.0
+
+                product_rows.append({
+                    'product_id': product_tmpl_id,
+                    'product_name': line.dp_product_name or product.name,
+                    'category': category,
+                    'cost_price': round(cost, 2),
+                    'original_price': round(old_price, 2),
+                    'ai_price': round(ai_price, 2),
+                    'ai_price_active': bool(ai_price and line.dp_decision not in ('hold', 'skip')),
+                    'segment': line.dp_segment_name or '',
+                    'decision': line.dp_decision or 'hold',
+                    'price_delta': price_delta,
+                    'price_delta_pct': price_delta_pct,
+                    'margin_before': round(line.dp_margin_before or 0.0, 2),
+                    'margin_after': round(line.dp_margin_after or 0.0, 2),
+                    'margin_delta': round(
+                        (line.dp_margin_after or 0.0) - (line.dp_margin_before or 0.0), 2
+                    ),
+                    'stock_status': stock['status'],
+                    'qty_on_hand': stock['qty'],
+                    'alert_flags': alert_flags,
+                    'log_line_status': line.dp_status or 'success',
+                })
+
+        # Summary KPIs
+        ai_active_rows = [r for r in product_rows if r['ai_price_active']]
+        unique_products = len(lines_by_product)
+        avg_margin_before = round(
+            sum(r['margin_before'] for r in product_rows) / len(product_rows), 2
+        ) if product_rows else 0.0
+        avg_margin_after = round(
+            sum(r['margin_after'] for r in ai_active_rows) / len(ai_active_rows), 2
+        ) if ai_active_rows else 0.0
+
+        summary = {
+            'total_products': unique_products,
+            'total_rows': len(product_rows),
+            'ai_priced_products': len(ai_active_rows),
+            'avg_margin_before': avg_margin_before,
+            'avg_margin_after': avg_margin_after,
+            'avg_margin_lift': round(avg_margin_after - avg_margin_before, 2),
+            'increase_count': sum(1 for r in product_rows if r['decision'] == 'increase'),
+            'decrease_count': sum(1 for r in product_rows if r['decision'] == 'decrease'),
+            'hold_count': sum(1 for r in product_rows if r['decision'] == 'hold'),
+            'skip_count': sum(1 for r in product_rows if r['decision'] == 'skip'),
+            'negative_margin_count': len(alerts['negative_margin']),
+            'dead_stock_count': len(alerts['dead_stock']),
+            'out_of_stock_count': len(alerts['out_of_stock']),
+            'overstock_count': len(alerts['overstock']),
+            'pricelists_updated': latest_log.dp_pricelists_updated or 0,
+            'total_tokens': latest_log.dp_total_tokens or 0,
+        }
 
         return {
             'card': {
@@ -913,118 +1436,141 @@ OUTPUT — one object per product × segment:
                 'name': card.vraja_common_card_name,
                 'status': card.dp_status,
                 'analyzed_on': str(card.dp_analyzed_on) if card.dp_analyzed_on else '',
+                'applied_on': str(latest_log.create_date)[:16] if latest_log.create_date else '',
+                'dead_stock_days': dead_stock_days,
+                'log_id': latest_log.id,
             },
             'currency': self.env.company.currency_id.name or 'USD',
-            'filters': {
-                'period': filters.get('period') or 'last_7_days',
-                'limit': limit,
-                'date_from': str(date_from),
-                'date_to': str(date_to),
-            },
             'summary': summary,
-            'top_products': top_rows,
-            'decision_mix': card._dp_get_decision_mix(enriched_rows),
-            'segment_data': segment_data,
-            'at_risk': at_risk,
-            'top_improvers': top_improvers,
+            'product_rows': product_rows,
+            'alerts': alerts,
+            'run_history': card._dp_get_run_history_with_lines(),
+            'segment_data': card._dp_get_segment_performance(),
         }
 
-    # =========================================================================
-    # HELPERS
-    # =========================================================================
+    def _dp_empty_dashboard(self, card):
+        """Returns an empty dashboard structure when no log data is available."""
+        return {
+            'card': {'id': card.id, 'name': card.vraja_common_card_name,
+                     'status': card.dp_status, 'analyzed_on': ''},
+            'currency': self.env.company.currency_id.name or 'USD',
+            'filters': {},
+            'summary': {},
+            'product_rows': [],
+            'alerts': {},
+            'run_history': [],
+            'segment_data': [],
+        }
 
-    def _dp_get_analysis_dates(self, filters):
-        today = fields.Date.context_today(self)
-        period = filters.get('period') or 'last_7_days'
-        if period == 'custom':
-            date_from = fields.Date.to_date(filters.get('date_from')) if filters.get('date_from') else today
-            date_to = fields.Date.to_date(filters.get('date_to')) if filters.get('date_to') else today
-            return (date_from, date_to) if date_from <= date_to else (date_to, date_from)
-        days = 30 if period == 'last_30_days' else 7
-        return fields.Date.subtract(today, days=days - 1), today
-
-    def _dp_parse_analysis_results(self):
+    def _dp_get_live_stock(self, product_tmpl_ids):
         """
-        Parse stored AI JSON — dp_result_json is a flat LIST of dicts,
-        one per product × segment pair.
+        Returns {product_template_id: {status, qty}} for all given products.
+        Uses stock.quant for quantity and stock.warehouse.orderpoint for reorder levels.
         """
-        self.ensure_one()
-        if not self.dp_result_json:
-            return []
-        try:
-            parsed = json.loads(self.dp_result_json)
-            if isinstance(parsed, list):
-                return parsed
-            # Legacy: if somehow a dict was stored, convert to list
-            if isinstance(parsed, dict):
-                return list(parsed.values())
-            return []
-        except (json.JSONDecodeError, TypeError):
-            return []
+        result = {}
+        quants = self.env['stock.quant'].sudo().search([
+            ('product_id.product_tmpl_id', 'in', product_tmpl_ids),
+            ('location_id.usage', '=', 'internal'),
+        ])
+        qty_map = {}
+        for q in quants:
+            tmpl_id = q.product_id.product_tmpl_id.id
+            qty_map[tmpl_id] = qty_map.get(tmpl_id, 0.0) + q.quantity
 
-    def _dp_get_sales_by_product(self, product_tmpl_ids, date_from, date_to):
-        if not product_tmpl_ids:
-            return {}
-        start_dt = datetime.combine(date_from, time.min)
-        end_dt = datetime.combine(date_to, time.max)
-        lines = self.env['sale.order.line'].sudo().search([
-            ('order_id.state', 'in', ['sale', 'done']),
-            ('order_id.date_order', '>=', fields.Datetime.to_string(start_dt)),
-            ('order_id.date_order', '<=', fields.Datetime.to_string(end_dt)),
+        orderpoints = self.env['stock.warehouse.orderpoint'].sudo().search([
             ('product_id.product_tmpl_id', 'in', product_tmpl_ids),
         ])
-        sales = {}
-        for line in lines:
-            tmpl_id = line.product_id.product_tmpl_id.id
-            bucket = sales.setdefault(tmpl_id, {'qty_sold': 0.0, 'revenue': 0.0})
-            bucket['qty_sold'] += line.product_uom_qty
-            bucket['revenue'] += line.price_total
-        return sales
+        reorder_map = {op.product_id.product_tmpl_id.id: op.product_min_qty for op in orderpoints}
 
-    def _dp_build_analysis_summary(self, rows, top_rows, ai_rows):
-        decisions = [r['decision'] for r in rows]
-        actionable = [r for r in rows if r['decision'] in ('increase', 'decrease')]
-        margin_lifts = [
-            r['margin_after'] - r['margin_before']
-            for r in rows if r['margin_before'] or r['margin_after']
-        ]
-        price_changes = [r['price_delta_pct'] for r in actionable]
-        unique_products = len(set(r['product_id'] for r in rows))
-        unique_segments = len(set(r['segment_name'] for r in rows if r.get('segment_name')))
+        for pid in product_tmpl_ids:
+            qty = round(qty_map.get(pid, 0.0), 2)
+            reorder = reorder_map.get(pid, 10.0)
+            if qty <= 0:
+                status = 'out_of_stock'
+            elif qty < reorder:
+                status = 'low_stock'
+            elif qty <= reorder * 3:
+                status = 'in_stock'
+            else:
+                status = 'overstock'
+            result[pid] = {'status': status, 'qty': qty}
+        return result
 
-        return {
-            'total_products': unique_products,
-            'total_segments': unique_segments,
-            'analyzed_products': len(ai_rows),
-            'top_products': len(top_rows),
-            'total_revenue': round(sum(r['revenue'] for r in rows), 2),
-            'total_qty_sold': round(sum(r['qty_sold'] for r in rows), 2),
-            'avg_margin_lift': round(sum(margin_lifts) / len(margin_lifts), 2) if margin_lifts else 0.0,
-            'avg_price_change': round(sum(price_changes) / len(price_changes), 2) if price_changes else 0.0,
-            'increase_count': decisions.count('increase'),
-            'decrease_count': decisions.count('decrease'),
-            'hold_count': decisions.count('hold'),
-            'skip_count': decisions.count('skip'),
-        }
+    def _dp_get_ai_pricelist_prices(self, product_tmpl_ids):
+        """
+        Returns {product_template_id: {price, segment}} for all pricelist items
+        flagged with is_ai_price=True. Used in analysis dashboard to show current AI prices.
+        """
+        result = {}
+        items = self.env['product.pricelist.item'].sudo().search([
+            ('product_tmpl_id', 'in', product_tmpl_ids),
+            ('is_ai_price', '=', True),
+        ])
+        for item in items:
+            pid = item.product_tmpl_id.id
+            if pid not in result:
+                price = item.fixed_price if item.compute_price == 'fixed' else 0.0
+                if item.compute_price == 'percentage' and item.product_tmpl_id.list_price:
+                    price = round(
+                        item.product_tmpl_id.list_price * (1 - item.percent_price / 100), 2
+                    )
+                result[pid] = {
+                    'price': round(price, 2),
+                    'segment': item.pricelist_id.name if item.pricelist_id else '',
+                }
+        return result
 
-    def _dp_build_segment_data(self, rows):
-        """Build per-segment summary for the segment performance table."""
+    def _dp_get_days_no_sale_map(self, product_tmpl_ids):
+        """
+        Returns {product_template_id: days_no_sale_or_None} for all given products.
+        None means the product has never been sold.
+        """
+        result = {}
+        products = self.env['product.template'].sudo().browse(product_tmpl_ids)
+        for product in products:
+            variant_ids = product.product_variant_ids.ids
+            if not variant_ids:
+                result[product.id] = None
+                continue
+            last_order = self.env['sale.order'].sudo().search([
+                ('state', 'in', ['sale', 'done']),
+                ('order_line.product_id', 'in', variant_ids),
+            ], order='date_order desc', limit=1)
+            if last_order and last_order.date_order:
+                result[product.id] = (fields.Date.today() - last_order.date_order.date()).days
+            else:
+                result[product.id] = None
+        return result
+
+    def _dp_get_segment_performance(self):
+        """
+        Returns segment performance metrics from the latest applied log.
+        Groups log lines by segment and computes: product count, decision distribution,
+        avg margin before/after, and margin improvement.
+        """
+        self.ensure_one()
+        latest_log = self.env['vraja.ai.log'].sudo().search([
+            ('vraja_common_log_store', '=', 'dynamic_pricing'),
+            ('dp_applied', '=', True),
+        ], order='create_date desc', limit=1)
+
+        if not latest_log:
+            return []
+
         segments = defaultdict(lambda: {
-            'products': 0, 'increase': 0, 'decrease': 0,
-            'hold': 0, 'skip': 0,
+            'products': 0, 'increase': 0, 'decrease': 0, 'hold': 0, 'skip': 0,
             'margin_before_sum': 0.0, 'margin_after_sum': 0.0,
-            'revenue': 0.0,
         })
-        for row in rows:
-            seg = row.get('segment_name') or 'Unknown'
+
+        for line in latest_log.line_ids:
+            seg = line.dp_segment_name or 'Unknown'
             s = segments[seg]
             s['products'] += 1
-            decision = row.get('decision', '')
-            if decision in s:
+            decision = line.dp_decision
+            if decision in ('increase', 'decrease', 'hold', 'skip'):
                 s[decision] += 1
-            s['margin_before_sum'] += row.get('margin_before', 0.0)
-            s['margin_after_sum'] += row.get('margin_after', 0.0)
-            s['revenue'] += row.get('revenue', 0.0)
+            s['margin_before_sum'] += line.dp_margin_before or 0.0
+            s['margin_after_sum'] += line.dp_margin_after or 0.0
 
         result = []
         for seg_name, s in segments.items():
@@ -1041,33 +1587,5 @@ OUTPUT — one object per product × segment:
                 'margin_improvement': round(
                     (s['margin_after_sum'] - s['margin_before_sum']) / count, 2
                 ),
-                'revenue': round(s['revenue'], 2),
             })
-        return sorted(result, key=lambda x: x['revenue'], reverse=True)
-
-    def _dp_get_decision_mix(self, rows):
-        total = len(rows) or 1
-        colors = {
-            'increase': '#21dc96',
-            'decrease': '#ff336d',
-            'hold': '#ffae4a',
-            'skip': '#8b95b7',
-            'not_analyzed': '#6f7f99',
-        }
-        labels = {
-            'increase': 'Increase',
-            'decrease': 'Decrease',
-            'hold': 'Hold',
-            'skip': 'Skip',
-            'not_analyzed': 'Not Analysed',
-        }
-        return [
-            {
-                'key': key,
-                'label': labels[key],
-                'count': sum(1 for r in rows if r['decision'] == key),
-                'percent': round(sum(1 for r in rows if r['decision'] == key) / total * 100, 2),
-                'color': colors[key],
-            }
-            for key in ('increase', 'decrease', 'hold', 'skip', 'not_analyzed')
-        ]
+        return sorted(result, key=lambda x: x['products'], reverse=True)

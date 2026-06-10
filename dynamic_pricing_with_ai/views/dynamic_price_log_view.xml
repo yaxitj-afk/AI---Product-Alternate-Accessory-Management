@@ -108,7 +108,7 @@
                                            decoration-success="dp_status == 'success'"
                                            decoration-warning="dp_status == 'skipped'"
                                            decoration-danger="dp_status == 'failed'"/>
-                                    <field name="dp_reason" string="AI Reason" width="250" optional="show"/>
+<!--                                    <field name="dp_reason" string="AI Reason" width="250" optional="show"/>-->
                                 </list>
                             </field>
                         </page>

@@ -15,7 +15,29 @@
                         <div>Loading dashboard...</div>
                     </div>
                 </div>
-                <h1 class="mb-4">AI Dashboard — Dynamic Pricing With AI</h1>
+                <!-- ── Top bar: title + dashboard button ── -->
+              <div class="d-flex align-items-center justify-content-between mb-4">
+                    <h1 class="mb-0">AI Dashboard — Dynamic Pricing With AI</h1>
+                    <div class="d-flex gap-2">
+                        <button type="button"
+                                class="btn btn-sm btn-primary"
+                                style="background:#0ea5e9 !important; border-color:#0ea5e9 !important;
+                                       border-radius:8px; padding:8px 18px; font-size:13px; font-weight:700;"
+                                t-on-click="openAnalysisDashboard">
+                            <i class="fa fa-bar-chart me-1"/>
+                            Analysis Dashboard
+                        </button>
+                        <button type="button"
+                                class="btn btn-sm"
+                                style="background:#7c3aed !important; border-color:#7c3aed !important;
+                                       color:#fff; border-radius:8px; padding:8px 18px;
+                                       font-size:13px; font-weight:700;"
+                                t-on-click="openBatchView">
+                            <i class="fa fa-tasks me-1"/>
+                            AI Batches
+                        </button>
+                    </div>
+                </div>
                 <!-- Loading -->
                 <div t-if="!state.ready" class="d-flex justify-content-center align-items-center" style="height:60vh;">
                     <div class="text-center text-muted">
@@ -50,9 +72,6 @@
                                     <span><i class="fa fa-cube me-1"/>
                                         <t t-esc="state.selectedProducts.length"/>
                                         Products</span>
-                                    <span><i class="fa fa-tags me-1"/>
-                                        <t t-esc="state.selectedPricelists.length"/>
-                                        Pricelists</span>
                                     <span>
                                         <i class="fa fa-clock-o me-1"/>
                                         <t t-if="state.dpData and state.dpData.dp_analyzed_on"
@@ -147,7 +166,7 @@
                                         How It Works
                                     </div>
                                     <div class="d-flex gap-2 flex-wrap">
-                                        <t t-foreach="[['1','Select Products'],['2','Select Pricelists  '],['3','Configure Settings'],['4','Run AI Analysis'],['5','Review Result &amp; Apply']]"
+                                        <t t-foreach="[['1','About'],['2','Business Info'],['3','Select Products'],['4','Configure Settings'],['5','AI Batches'],['6','Review &amp; Apply']]"
                                            t-as="step" t-key="step[0]">
                                             <div class="d-flex align-items-center gap-2 px-3 py-2 rounded"
                                                  style="background:#f8f9fa; border:1px solid #dee2e6; font-size:13px;">
@@ -156,7 +175,7 @@
                                                 </span>
                                                 <span><t t-esc="step[1]"/></span>
                                             </div>
-                                            <div t-if="step[0] != '5'" class="d-flex align-items-center"
+                                            <div t-if="step[0] != '6'" class="d-flex align-items-center"
                                                  style="color:#ccc;">
                                                 <span class="fa fa-chevron-right"/>
                                             </div>
@@ -168,11 +187,8 @@
                                     <span class="fa fa-lightbulb-o mt-1" style="color:#f0a500; font-size:16px;"/>
                                     <div style="font-size:13px; color:#7a5800;">
                                         <strong>How prices are applied:</strong>
-                                        The AI suggested price is written to the
-                                        <code>dp_ai_suggested_price</code>
-                                        field on the product and to each selected pricelist item. Customers assigned to
-                                        those
-                                        pricelists will see the AI price on the website automatically.
+                                        AI suggested prices are written as fixed pricelist items to every pricelist
+                                        mapped to that segment.
                                     </div>
                                 </div>
                                 <div class="mt-3 pt-3 d-flex justify-content-end" style="border-top:1px solid #eee;">
@@ -215,7 +231,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                        <div class="col-md-4">
+                                    <div class="col-md-4">
                                             <div class="d-flex align-items-start gap-2 p-3 rounded h-100"
                                                  style="background:#f0fff4; border:1px solid #a3cfbb;">
                                                 <span class="fa fa-balance-scale mt-1" style="color:#27ae60;"/>
@@ -249,7 +265,7 @@
                                     <textarea id="dp_business_info" class="form-control" rows="5"
                                               style="font-size:13px; border:1px solid #d0d9f5; border-radius:8px; resize:vertical;"
                                               placeholder="e.g. We are a B2B electronics distributor. Wholesale buyers expect stable pricing. Our peak season is October–December."
-                                              t-on-blur="onBusinessInfoBlur"/>
+                                              t-on-blur="onBusinessInfoBlur"><t t-esc="state.dpData and state.dpData.dp_business_info or ''"/></textarea>
                                 </div>
                                 <!-- Examples -->
                                 <div class="p-3 rounded" style="background:#f8f9fa; border:1px solid #dee2e6;">
@@ -461,7 +477,8 @@
                                                                 t-att-value="rule.customer_type"
                                                                 t-on-change="(ev) => this.onSegmentTypeChange(rule._key, ev.target.value)">
                                                             <option value="">— Select Type —</option>
-                                                            <t t-foreach="state.dpSegmentTypeOptions" t-as="opt" t-key="opt.value">
+                                                            <t t-foreach="state.dpSegmentTypeOptions" t-as="opt"
+                                                               t-key="opt.value">
                                                                 <option t-att-value="opt.value"
                                                                         t-att-selected="rule.customer_type === opt.value">
                                                                     <t t-esc="opt.label"/>
@@ -606,24 +623,39 @@
                                     Add up to 3 competitor product page URLs. The AI uses these as market price
                                     reference signals.
                                 </div>
-                                <div style="border:1px solid #d0d9f5; border-radius:8px; padding:12px; background:#f0f4ff; margin-bottom:16px;">
-                                    <div class="row g-2">
-                                        <t t-foreach="[['dp_competitor_url_1','URL 1'],['dp_competitor_url_2','URL 2'],['dp_competitor_url_3','URL 3']]"
-                                           t-as="pair" t-key="pair[0]">
-                                            <div class="col-12">
-                                                <div class="d-flex align-items-center gap-2">
-                                                    <span class="text-muted small fw-semibold" style="min-width:40px;"><t t-esc="pair[1]"/></span>
-                                                    <input t-att-id="pair[0]" type="url"
-                                                           class="form-control form-control-sm"
-                                                           style="font-family:monospace; font-size:12px; border:1px solid #d0d9f5;"
-                                                           placeholder="https://competitor.com/product-page"
-                                                           t-att-value="state.dpData and state.dpData[pair[0]] or ''"/>
-                                                </div>
-                                            </div>
-                                        </t>
+                                <div style="border:1px solid #d0d9f5; border-radius:8px; padding:12px; background:#f0f4ff; margin-bottom:8px;">
+                                    <div t-if="!state.dpCompetitorUrls or state.dpCompetitorUrls.length === 0"
+                                         class="text-muted text-center py-2" style="font-size:13px;">
+                                        <i class="fa fa-globe me-1"/>No competitor URLs added yet.
                                     </div>
+                                    <t t-foreach="state.dpCompetitorUrls" t-as="urlRow" t-key="urlRow._key">
+                                        <div class="d-flex align-items-center gap-2 mb-2">
+                                            <span class="text-muted small fw-semibold"
+                                                  style="min-width:46px; flex-shrink:0;">
+                                                URL <t t-esc="urlRow_index + 1"/>
+                                            </span>
+                                            <input type="url"
+                                                   class="form-control form-control-sm"
+                                                   style="font-family:monospace; font-size:12px; border:1px solid #d0d9f5; flex:1;"
+                                                   placeholder="https://competitor.com/product-page"
+                                                   t-att-value="urlRow.url or ''"
+                                                   t-on-input="(ev) => this.onCompetitorUrlChange(urlRow._key, ev.target.value)"/>
+                                            <button type="button"
+                                                    class="btn btn-sm"
+                                                    style="color:#aaa; padding:4px 7px; border-radius:6px;"
+                                                    t-on-click="() => this.onCompetitorUrlDelete(urlRow._key)">
+                                                <i class="fa fa-trash"/>
+                                            </button>
+                                        </div>
+                                    </t>
                                 </div>
-
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-primary mb-3"
+                                        style="font-size:13px; border-style:dashed;"
+                                        t-on-click="onCompetitorUrlAdd">
+                                    <i class="fa fa-plus me-1"/>Add Competitor URL
+                                </button>
+                                <br/>
                                 <!-- CRON / AUTO APPLY -->
                                 <label class="form-label fw-semibold mb-1" style="color:#2c3e7a;">
                                     <i class="fa fa-clock-o me-1"/>Scheduled Auto-Run (Cron)
@@ -649,7 +681,8 @@
                                                 <i class="fa fa-exclamation-triangle me-1"/>
                                                 <strong>Important:</strong>
                                                 Auto-apply overwrites pricelist prices daily.
-                                                The product base <code>price</code> is <strong>never changed</strong> —  only pricelist items are updated.
+                                                The product base <code>price</code> is <strong>never changed</strong> —
+                                                only pricelist items are updated.
 
                                             </div>
                                             <div t-if="state.dpAutoApplyEnabled" class="mt-2 pt-2"
@@ -687,113 +720,525 @@
                             </div>
                         </div>
                     </div>
+                   <!-- ══════════════════════════════════════════════════════════
+                         Step 5 — AI Batches
+                         Shows batch status table (draft/running/done) and CSV download.
+                         Batches are created automatically on Save & Next (Step 4).
+                         The cron processes one batch at a time — no manual trigger needed.
+                     ══════════════════════════════════════════════════════════ -->
 
-                    <!-- Step 5 — Review & Apply -->
                     <div class="card mb-3 shadow-sm">
+                        <!-- Header -->
                         <div class="card-header d-flex justify-content-between align-items-center"
                              style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#dp_step5_section">
-                            <strong><span class="fa fa-check-circle me-2"/>Step 5 — Review &amp; Apply</strong>
+                            <strong><span class="fa fa-tasks me-2"/>Step 5 — AI Batches</strong>
                             <i class="fa fa-chevron-down"/>
                         </div>
+
                         <div id="dp_step5_section" class="collapse">
                             <div class="card-body p-4">
 
                                 <!-- No products warning -->
-                                <div t-if="!state.selectedProducts.length" class="alert alert-info small">
-                                    <i class="fa fa-info-circle me-1"/>
-                                    No products selected. Go back to Step 3 and select products first.
+                                <div t-if="!state.selectedProducts.length"
+                                     class="d-flex align-items-center gap-3 p-3 rounded-3 mb-3"
+                                     style="background:#eff6ff; border-left:4px solid #3b82f6;">
+                                    <i class="fa fa-info-circle fa-lg" style="color:#3b82f6;"/>
+                                    <span style="font-size:13px; color:#1e40af;">
+                                        No products selected. Go back to Step 3 and select products first.
+                                    </span>
                                 </div>
 
-                                <!-- Run AI button row -->
-                                <div class="d-flex justify-content-between align-items-center mb-4">
-                                    <button class="btn btn-primary"
-                                            t-on-click="onDpRunAI"
-                                            t-att-disabled="!state.selectedProducts.length or state.loading">
-                                        <span class="fa fa-magic me-1"/>Run AI Pricing Analysis
+                                <div t-if="state.selectedProducts.length">
+
+                                    <!-- ── Top Row: CSV + Status ── -->
+                                    <div class="row g-3 mb-4">
+
+                                        <!-- CSV Download Card -->
+                                        <div class="col-md-6">
+                                            <div t-if="state.dpData and state.dpData.dp_csv_attachment_id"
+                                                 class="h-100 p-3 rounded-3 d-flex flex-column justify-content-between"
+                                                 style="background:#f0f7ff; border:1px solid #c8deff;">
+                                                <div class="d-flex align-items-center gap-2 mb-2">
+                                                    <div style="background:#3b82f6; border-radius:8px; width:34px; height:34px;
+                                                                display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                                                        <i class="fa fa-file-text-o" style="color:#fff; font-size:15px;"/>
+                                                    </div>
+                                                    <div>
+                                                        <div style="font-weight:700; font-size:13px; color:#1a3a7a;">Products CSV Generated</div>
+                                                        <div style="font-size:11px; color:#6b7280;">All product signals sent to AI</div>
+                                                    </div>
+                                                </div>
+                                                <a t-att-href="'/web/content/' + state.dpData.dp_csv_attachment_id + '?download=true'"
+                                                   class="btn btn-sm mt-2"
+                                                   style="background:#3b82f6; color:#fff; border-radius:8px;
+                                                          font-size:12px; font-weight:600; width:fit-content;"
+                                                   target="_blank">
+                                                    <i class="fa fa-download me-1"/>Download Products CSV
+                                                </a>
+                                            </div>
+
+                                            <!-- No CSV warning -->
+                                            <div t-if="!state.dpData or !state.dpData.dp_csv_attachment_id"
+                                                 class="h-100 p-3 rounded-3 d-flex align-items-center gap-3"
+                                                 style="background:#fffbeb; border:1px solid #fde68a;">
+                                                <i class="fa fa-exclamation-triangle fa-lg" style="color:#d97706;"/>
+                                                <span style="font-size:12px; color:#92400e;">
+                                                    CSV not generated yet. Go back to Step 4 and click Save &amp; Next.
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <!-- Status Card -->
+                                        <div class="col-md-6">
+                                            <!-- Running -->
+                                            <div t-if="state.dpData and state.dpData.dp_status === 'running'"
+                                                 class="h-100 p-3 rounded-3 d-flex align-items-center gap-3"
+                                                 style="background:#fffbeb; border:1px solid #fde68a;">
+                                                <div style="background:#fef3c7; border-radius:50%; width:44px; height:44px;
+                                                            display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                                                    <i class="fa fa-spinner fa-spin" style="color:#d97706; font-size:18px;"/>
+                                                </div>
+                                                <div>
+                                                    <div style="font-weight:700; font-size:13px; color:#92400e;">AI Analysis In Progress</div>
+                                                    <div style="font-size:11px; color:#b45309; margin-top:2px;">
+                                                        Cron is processing batches automatically. This page will update when results are ready.
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Done -->
+                                            <div t-if="state.dpData and state.dpData.dp_status === 'done'"
+                                                 class="h-100 p-3 rounded-3 d-flex align-items-center gap-3"
+                                                 style="background:#f0fdf4; border:1px solid #bbf7d0;">
+                                                <div style="background:#dcfce7; border-radius:50%; width:44px; height:44px;
+                                                            display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                                                    <i class="fa fa-check-circle" style="color:#16a34a; font-size:18px;"/>
+                                                </div>
+                                                <div>
+                                                    <div style="font-weight:700; font-size:13px; color:#166534;">Analysis Complete!</div>
+                                                    <div style="font-size:11px; color:#15803d; margin-top:2px;">
+                                                        Click <strong>Next — Review &amp; Apply</strong> to review results.
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Idle -->
+                                            <div t-if="!state.dpData or (state.dpData.dp_status !== 'running' and state.dpData.dp_status !== 'done')"
+                                                 class="h-100 p-3 rounded-3 d-flex align-items-center gap-3"
+                                                 style="background:#f5f3ff; border:1px solid #ddd6fe;">
+                                                <div style="background:#ede9fe; border-radius:50%; width:44px; height:44px;
+                                                            display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                                                    <i class="fa fa-clock-o" style="color:#7c3aed; font-size:18px;"/>
+                                                </div>
+                                                <div>
+                                                    <div style="font-weight:700; font-size:13px; color:#4c1d95;">Waiting to Start</div>
+                                                    <div style="font-size:11px; color:#6d28d9; margin-top:2px;">
+                                                        No analysis running yet.
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- ── Batches Table ── -->
+                                    <div t-if="state.dpData and state.dpData.dp_batches and state.dpData.dp_batches.length"
+                                         class="mb-4">
+                                        <div class="d-flex align-items-center justify-content-between mb-2">
+                                            <div style="font-weight:700; font-size:13px; color:#1a1a2e;">
+                                                <i class="fa fa-tasks me-2" style="color:#7c3aed;"/>AI Batches
+                                                <span style="font-size:11px; font-weight:400; color:#6b7280; margin-left:6px;">
+                                                    — Cron automatically processes one batch per run
+                                                </span>
+                                            </div>
+                                            <span style="background:#ede9fe; color:#7c3aed; border-radius:20px;
+                                                         padding:3px 12px; font-size:11px; font-weight:700; border:1px solid #ddd6fe;">
+                                                <t t-esc="state.dpData.dp_batches.length"/> Total
+                                            </span>
+                                        </div>
+
+                                        <div style="border:1px solid #e5e7eb; border-radius:12px; overflow:hidden;
+                                                    box-shadow:0 2px 8px rgba(0,0,0,0.05);">
+                                            <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                                                <thead>
+                                                    <tr style="background:linear-gradient(135deg,#1e1b4b,#4c1d95);">
+                                                        <th style="padding:11px 16px; color:#e0d9ff; font-size:11px;
+                                                                   font-weight:700; text-transform:uppercase;
+                                                                   letter-spacing:0.6px; text-align:left;">Batch</th>
+                                                        <th style="padding:11px 16px; color:#e0d9ff; font-size:11px;
+                                                                   font-weight:700; text-transform:uppercase;
+                                                                   letter-spacing:0.6px; text-align:center;">Products</th>
+                                                        <th style="padding:11px 16px; color:#e0d9ff; font-size:11px;
+                                                                   font-weight:700; text-transform:uppercase;
+                                                                   letter-spacing:0.6px; text-align:center;">State</th>
+                                                        <th style="padding:11px 16px; color:#e0d9ff; font-size:11px;
+                                                                   font-weight:700; text-transform:uppercase;
+                                                                   letter-spacing:0.6px; text-align:left;">Error</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <t t-foreach="state.dpData.dp_batches" t-as="batch" t-key="batch.id">
+                                                        <tr style="border-bottom:1px solid #f3f4f6; transition:background 0.15s;"
+                                                            onmouseover="this.style.background='#f5f3ff'"
+                                                            onmouseout="this.style.background='#fff'">
+                                                            <td style="padding:11px 16px; font-weight:600; color:#111827;">
+                                                                <i class="fa fa-layer-group me-1" style="color:#7c3aed; font-size:11px;"/>
+                                                                <t t-esc="batch.name"/>
+                                                            </td>
+                                                            <td style="padding:11px 16px; text-align:center;">
+                                                                <span style="background:#f3f4f6; color:#374151; border-radius:20px;
+                                                                             padding:2px 10px; font-size:12px; font-weight:600;">
+                                                                    <t t-esc="batch.products_count"/>
+                                                                </span>
+                                                            </td>
+                                                            <td style="padding:11px 16px; text-align:center;">
+                                                                <span t-if="batch.state === 'draft'"
+                                                                      style="background:#e0f2fe; color:#0369a1; border-radius:20px;
+                                                                             padding:3px 12px; font-size:11px; font-weight:700;
+                                                                             border:1px solid #bae6fd;">
+                                                                    <i class="fa fa-clock-o me-1"/>Draft
+                                                                </span>
+                                                                <span t-elif="batch.state === 'running'"
+                                                                      style="background:#fef3c7; color:#92400e; border-radius:20px;
+                                                                             padding:3px 12px; font-size:11px; font-weight:700;
+                                                                             border:1px solid #fde68a;">
+                                                                    <i class="fa fa-spinner fa-spin me-1"/>Running
+                                                                </span>
+                                                                <span t-else=""
+                                                                      style="background:#dcfce7; color:#166534; border-radius:20px;
+                                                                             padding:3px 12px; font-size:11px; font-weight:700;
+                                                                             border:1px solid #bbf7d0;">
+                                                                    <i class="fa fa-check me-1"/>Done
+                                                                </span>
+                                                            </td>
+                                                            <td style="padding:11px 16px; font-size:11px; color:#dc2626; max-width:200px;">
+                                                                <span t-if="batch.error_message"
+                                                                      t-att-title="batch.error_message"
+                                                                      style="white-space:nowrap; overflow:hidden;
+                                                                             text-overflow:ellipsis; display:block;
+                                                                             max-width:180px; cursor:help;">
+                                                                    <i class="fa fa-exclamation-circle me-1"/>
+                                                                    <t t-esc="batch.error_message"/>
+                                                                </span>
+                                                                <span t-if="!batch.error_message" style="color:#9ca3af;">—</span>
+                                                            </td>
+                                                        </tr>
+                                                    </t>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <!-- No batches yet -->
+                                    <div t-if="!state.dpData or !state.dpData.dp_batches or !state.dpData.dp_batches.length"
+                                         class="d-flex align-items-center gap-3 p-3 rounded-3 mb-4"
+                                         style="background:#eff6ff; border:1px solid #bfdbfe;">
+                                        <i class="fa fa-info-circle fa-lg" style="color:#3b82f6;"/>
+                                        <span style="font-size:13px; color:#1e40af;">
+                                            No batches created yet. Go back to Step 4 and click Save &amp; Next.
+                                        </span>
+                                    </div>
+
+                                </div>
+
+                                <!-- Navigation -->
+                                <div class="mt-3 pt-3 d-flex justify-content-between align-items-center"
+                                     style="border-top:1px solid #e5e7eb;">
+                                    <button class="btn btn-outline-secondary btn-sm"
+                                            t-on-click="()=>this.goToStep('#dp_step5_section','#dp_step4_section')">
+                                        <span class="fa fa-arrow-left me-1"/>Previous
+                                    </button>
+                                    <button class="btn btn-sm"
+                                            t-on-click="onRefreshBatchStatus"
+                                            style="background:#0ea5e9; color:#fff; border:none; border-radius:8px;
+                                                   font-size:12px; font-weight:600;"
+                                            title="Reload batch status from server">
+                                        <i class="fa fa-refresh me-1"/>Refresh Status
+                                    </button>
+                                    <button class="btn btn-sm"
+                                            t-on-click="()=>this.goToStep('#dp_step5_section','#dp_step6_section')"
+                                            t-att-disabled="!getDpResults().length"
+                                            style="background:linear-gradient(135deg,#7c3aed,#4c1d95); color:#fff;
+                                                   border:none; border-radius:8px; font-size:12px; font-weight:600;">
+                                        Next — Review &amp; Apply <span class="fa fa-arrow-right ms-1"/>
                                     </button>
                                 </div>
 
-                                <!-- Results section — shown only after AI has run -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 6 — Review & Apply -->
+                    <div class="card mb-3 shadow-sm">
+
+
+                        <!-- ── Header ── -->
+                        <div class="card-header d-flex justify-content-between align-items-center"
+                             style="cursor:pointer;"
+                             data-bs-toggle="collapse" data-bs-target="#dp_step6_section">
+                            <strong><span class="fa fa-magic me-2"/>Step 6 — Review &amp; Apply</strong>
+                            <i class="fa fa-chevron-down"/>
+                        </div>
+
+                        <div id="dp_step6_section" class="collapse">
+                            <div class="card-body" style="padding:0; background:#fff;">
+
+                                <!-- No results state -->
+                                <div t-if="!getDpResults().length"
+                                     style="padding:48px 32px; text-align:center; color:#9ca3af;">
+                                    <div style="width:56px; height:56px; border-radius:50%; background:#f3f4f6;
+                                                display:flex; align-items:center; justify-content:center;
+                                                margin:0 auto 16px;">
+                                        <i class="fa fa-magic" style="font-size:22px; color:#d1d5db;"/>
+                                    </div>
+                                    <div style="font-size:14px; font-weight:600; color:#6b7280; margin-bottom:4px;">
+                                        No AI results yet
+                                    </div>
+                                    <div style="font-size:13px;">No AI results yet. The cron will process batches automatically. Check Step 5 for batch status.</div>
+                                </div>
+
                                 <div t-if="getDpResults().length">
-                                    <hr/>
-                                    <div class="alert alert-warning small mb-3">
-                                        <i class="fa fa-exclamation-triangle me-1"/>
-                                        Applying will write AI suggested prices to all selected products in all selected
-                                        pricelists.The product <strong>base price </strong>is not changed  —  only <strong>pricelist items</strong> are updated.
-                                    </div>
-                                    <div class="d-flex align-items-center justify-content-between mb-3">
-                                        <div class="text-muted small">
-                                            <strong><t t-esc="getDpResults().length"/></strong>
-                                            products analysed
+
+                                    <!-- ── Top bar: count + search + delete selected ── -->
+                                    <div style="padding:16px 24px; background:#fff; border-bottom:1px solid #f0f0f0;
+                                                display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+
+                                        <div class="d-flex align-items-center gap-3">
+                                            <!-- Product count pill -->
+                                            <div style="background:#f0f4ff; border:1px solid #dde3ff; border-radius:20px;
+                                                        padding:5px 14px; font-size:12px; font-weight:700; color:#3730a3;">
+                                                <i class="fa fa-cube me-1"/>
+                                                <t t-esc="getFilteredDpResults().length"/>
+                                                of
+                                                <t t-esc="getDpResults().length"/>
+                                                products
+                                            </div>
+
+                                            <!-- Delete selected — only when rows checked -->
+                                            <button t-if="state.selectedRows.length"
+                                                    style="background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff;
+                                                           border:none; border-radius:8px; padding:6px 16px; font-size:12px;
+                                                           font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px;
+                                                           box-shadow:0 2px 8px rgba(239,68,68,0.3);"
+                                                    t-on-click="deleteSelectedDpRows">
+                                                <i class="fa fa-trash"/>
+                                                Remove Selected (<t t-esc="state.selectedRows.length"/>)
+                                            </button>
                                         </div>
-                                        <input type="text" class="form-control form-control-sm" style="max-width:220px;"
-                                               placeholder="Search product..." t-on-input="onStep4Search"/>
+
+                                        <!-- Search -->
+                                        <div style="position:relative;">
+                                            <i class="fa fa-search"
+                                               style="position:absolute; left:10px; top:50%; transform:translateY(-50%);
+                                                      color:#9ca3af; font-size:12px; pointer-events:none;"/>
+                                            <input type="text"
+                                                   style="padding:7px 14px 7px 30px; border:1.5px solid #e5e7eb;
+                                                          border-radius:8px; font-size:13px; width:220px; background:#fff;
+                                                          outline:none; color:#374151;"
+                                                   placeholder="Search product..." t-on-input="onStep4Search"/>
+                                        </div>
                                     </div>
-                                    <div style="max-height:500px; overflow-y:auto;">
-                                        <table class="table table-sm table-hover align-middle mb-0">
-                                            <thead class="table-dark sticky-top">
-                                                <tr>
-                                                    <th>Product</th>
-                                                    <th>Segment</th>
-                                                    <th>Current Price</th>
-                                                    <th>AI Suggested Price</th>
-                                                    <th>Decision</th>
-                                                    <th>Margin Before</th>
-                                                    <th>Margin After</th>
-                                                    <th>Reason</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <t t-foreach="getPagedDpResults()" t-as="row" t-key="row_index">
-                                                    <tr>
-                                                        <td class="fw-semibold small"><t t-esc="row.product_name"/></td>
-                                                        <td class="small"><t t-esc="getSegmentLabel(row.segment_name)"/></td>
-                                                        <td class="small"><t t-esc="row.current_price"/></td>
-                                                        <td class="fw-bold small">
-                                                            <span t-if="row.decision === 'hold' || row.decision === 'skip'"
-                                                                  class="text-muted">—</span>
-                                                            <span t-else=""><t t-esc="row.suggested_price"/></span>
-                                                        </td>
-                                                        <td>
-                                                            <span t-att-class="getDecisionBadgeClass(row.decision)">
-                                                                <t t-esc="row.decision"/>
-                                                            </span>
-                                                        </td>
-                                                        <td class="small"><t t-esc="row.margin_before"/>%</td>
-                                                        <td class="small"><t t-esc="row.margin_after"/>%</td>
-                                                        <td class="text-muted small"
-                                                            style="max-width:180px; white-space:normal;">
-                                                            <t t-esc="row.reason"/>
-                                                        </td>
+
+                                    <!-- ── Warning banner ── -->
+                                    <div style="margin:16px 24px 0; background:#fffbeb; border:1px solid #fde68a;
+                                                border-left:4px solid #f59e0b; border-radius:10px; padding:12px 16px;
+                                                font-size:12px; color:#92400e; display:flex; align-items:flex-start; gap:8px;">
+                                        <i class="fa fa-exclamation-triangle mt-1"
+                                           style="color:#f59e0b; flex-shrink:0;"/>
+                                        <span>Applying will write AI suggested prices to all selected pricelists.
+                                        The product <strong>base price</strong> is not changed —
+                                            only <strong>pricelist items</strong> are updated.</span>
+                                    </div>
+
+                                    <!-- ── Table ── -->
+                                    <div style="background:#f0f4ff;margin:16px 24px 0; border-radius:12px; overflow:hidden;
+                                                border:1px solid #e5e7eb; box-shadow:0 1px 6px rgba(0,0,0,0.04);">
+                                        <div style="max-height:460px; overflow-y:auto;">
+                                            <table style="width:100%; border-collapse:collapse; font-size:13px;">
+
+                                                <!-- Sticky dark header -->
+                                                <thead style="position:sticky; top:0; z-index:2;">
+                                                    <tr style="background:#111827;">
+                                                        <th style="padding:12px 14px; width:40px;">
+                                                            <input type="checkbox"
+                                                                   t-att-checked="isDpAllSelected()"
+                                                                   t-on-change="toggleDpSelectAll"
+                                                                   style="width:15px; height:15px; cursor:pointer; accent-color:#6366f1;"/>
+                                                        </th>
+                                                        <th style="padding:12px 14px; color:#d1d5db; font-size:11px;
+                                                                   font-weight:700; text-transform:uppercase; letter-spacing:0.6px;
+                                                                   text-align:left;">Product</th>
+                                                        <th style="padding:12px 14px; color:#d1d5db; font-size:11px;
+                                                                   font-weight:700; text-transform:uppercase; letter-spacing:0.6px;
+                                                                   text-align:left;">Segment</th>
+                                                        <th style="padding:12px 14px; color:#d1d5db; font-size:11px;
+                                                                   font-weight:700; text-transform:uppercase; letter-spacing:0.6px;
+                                                                   text-align:right;">Current Price</th>
+                                                        <th style="padding:12px 14px; color:#d1d5db; font-size:11px;
+                                                                   font-weight:700; text-transform:uppercase; letter-spacing:0.6px;
+                                                                   text-align:right;">AI Price</th>
+                                                        <th style="padding:12px 14px; color:#d1d5db; font-size:11px;
+                                                                   font-weight:700; text-transform:uppercase; letter-spacing:0.6px;
+                                                                   text-align:center;">Decision</th>
+                                                        <th style="padding:12px 14px; color:#d1d5db; font-size:11px;
+                                                                   font-weight:700; text-transform:uppercase; letter-spacing:0.6px;
+                                                                   text-align:right;">Margin Before</th>
+                                                        <th style="padding:12px 14px; color:#d1d5db; font-size:11px;
+                                                                   font-weight:700; text-transform:uppercase; letter-spacing:0.6px;
+                                                                   text-align:right;">Margin After</th>
+                                                        <th style="padding:12px 14px; color:#d1d5db; font-size:11px;
+                                                                   font-weight:700; text-transform:uppercase; letter-spacing:0.6px;
+                                                                   text-align:center; width:60px;">Action</th>
                                                     </tr>
-                                                </t>
-                                            </tbody>
-                                        </table>
+                                                </thead>
+
+                                                <tbody style="background:#fff;">
+                                                    <t t-foreach="getPagedDpResults()" t-as="row" t-key="row.rowKey">
+                                                        <tr t-attf-style="border-bottom:1px solid #f3f4f6; transition:background .1s;
+                                                                          #{isDpRowSelected(row.rowKey) ? 'background:#f5f3ff;' : ''}">
+
+                                                            <!-- Checkbox -->
+                                                            <td style="padding:12px 14px;">
+                                                                <input type="checkbox"
+                                                                       t-att-checked="isDpRowSelected(row.rowKey)"
+                                                                       t-on-change="(ev) => this.toggleDpRow(row.rowKey, ev)"
+                                                                       style="width:15px; height:15px; cursor:pointer; accent-color:#6366f1;"/>
+                                                            </td>
+
+                                                            <!-- Product -->
+                                                            <td style="padding:12px 14px; font-weight:700; color:#111827; font-size:13px;">
+                                                                <t t-esc="row.product_name"/>
+                                                            </td>
+
+                                                            <!-- Segment -->
+                                                            <td style="padding:12px 14px;">
+                                                                <span style="background:#f0f4ff; color:#3730a3; border-radius:6px;
+                                                                             padding:2px 10px; font-size:11px; font-weight:600;
+                                                                             border:1px solid #dde3ff;">
+                                                                    <t t-esc="getSegmentLabel(row.segment_name)"/>
+                                                                </span>
+                                                            </td>
+
+                                                            <!-- Current price -->
+                                                            <td style="padding:12px 14px; text-align:right; font-size:13px;
+                                                                       color:#6b7280; font-weight:500; font-family:monospace;">
+                                                                <t t-esc="row.current_price"/>
+                                                            </td>
+
+                                                            <!-- AI price -->
+                                                            <td style="padding:12px 14px; text-align:right;">
+                                                                <span t-if="row.decision === 'hold' or row.decision === 'skip'"
+                                                                      style="color:#d1d5db; font-size:13px;">—</span>
+                                                                <span t-else=""
+                                                                      style="font-weight:800; font-size:13px; color:#4f46e5;
+                                                                             font-family:monospace;">
+                                                                    <t t-esc="row.suggested_price"/>
+                                                                </span>
+                                                            </td>
+
+                                                            <!-- Decision badge -->
+                                                            <td style="padding:12px 14px; text-align:center;">
+                                                                <span t-if="row.decision === 'increase'"
+                                                                      style="background:#dcfce7; color:#166534; border-radius:20px;
+                                                                             padding:3px 12px; font-size:11px; font-weight:700;
+                                                                             border:1px solid #bbf7d0; white-space:nowrap;">
+                                                                    <i class="fa fa-arrow-up me-1"/>Increase
+                                                                </span>
+                                                                <span t-elif="row.decision === 'decrease'"
+                                                                      style="background:#fee2e2; color:#991b1b; border-radius:20px;
+                                                                             padding:3px 12px; font-size:11px; font-weight:700;
+                                                                             border:1px solid #fecaca; white-space:nowrap;">
+                                                                    <i class="fa fa-arrow-down me-1"/>Decrease
+                                                                </span>
+                                                                <span t-elif="row.decision === 'hold'"
+                                                                      style="background:#f3f4f6; color:#6b7280; border-radius:20px;
+                                                                             padding:3px 12px; font-size:11px; font-weight:700;
+                                                                             border:1px solid #e5e7eb; white-space:nowrap;">
+                                                                    <i class="fa fa-minus me-1"/>No Change
+                                                                </span>
+                                                                <span t-else=""
+                                                                      style="background:#fef3c7; color:#92400e; border-radius:20px;
+                                                                             padding:3px 12px; font-size:11px; font-weight:700;
+                                                                             border:1px solid #fde68a; white-space:nowrap;">
+                                                                    <i class="fa fa-ban me-1"/>Excluded
+                                                                </span>
+                                                            </td>
+
+                                                            <!-- Margin before -->
+                                                            <td style="padding:12px 14px; text-align:right;">
+                                                                <span t-attf-style="font-size:13px; font-weight:600;
+                                                                      #{(row.margin_before or 0) &lt; 0 ?
+                                                                        'color:#dc2626;' :
+                                                                        (row.margin_before or 0) &lt; 15 ?
+                                                                        'color:#d97706;' : 'color:#059669;'}">
+                                                                    <t t-esc="row.margin_before"/>%
+                                                                </span>
+                                                            </td>
+
+                                                            <!-- Margin after -->
+                                                            <td style="padding:12px 14px; text-align:right;">
+                                                                <span t-if="row.decision === 'hold' or row.decision === 'skip'"
+                                                                      style="color:#d1d5db;">—</span>
+                                                                <span t-else=""
+                                                                      t-attf-style="font-size:13px; font-weight:700;
+                                                                      #{(row.margin_after or 0) &lt; 0 ?
+                                                                        'color:#dc2626;' :
+                                                                        (row.margin_after or 0) &lt; 15 ?
+                                                                        'color:#d97706;' : 'color:#059669;'}">
+                                                                    <t t-esc="row.margin_after"/>%
+                                                                </span>
+                                                            </td>
+
+                                                            <!-- Trash -->
+                                                            <td style="padding:12px 14px; text-align:center;">
+                                                                <button type="button"
+                                                                        style="background:#fff0f0; color:#dc2626; border:1px solid #fecaca;
+                                                                               border-radius:7px; padding:5px 9px; cursor:pointer;
+                                                                               font-size:12px; transition:all .15s;"
+                                                                        t-on-click="() => this.deleteSingleDpRow(row.rowKey)">
+                                                                    <i class="fa fa-trash"/>
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    </t>
+                                                </tbody>
+                                            </table>
+                                        </div>
 
                                         <!-- Pagination -->
-                                        <div class="d-flex justify-content-between align-items-center mt-2">
-                                            <small class="text-muted">
-                                                Showing <strong><t t-esc="(state.step4Page - 1) * 10 + 1"/></strong>
+                                        <div style="display:flex; justify-content:space-between; align-items:center;
+                                                    padding:12px 16px; background:#f9fafb; border-top:1px solid #f0f0f0;">
+                                            <small style="color:#9ca3af; font-size:12px;">
+                                                Showing
+                                                <strong style="color:#374151;"><t t-esc="(state.step4Page - 1) * 10 + 1"/></strong>
                                                 –
-                                                <strong><t t-esc="Math.min(state.step4Page * 10, getFilteredDpResults().length)"/></strong>
+                                                <strong style="color:#374151;">
+                                                    <t t-esc="Math.min(state.step4Page * 10, getFilteredDpResults().length)"/>
+                                                </strong>
                                                 of
-                                                <strong><t t-esc="getFilteredDpResults().length"/></strong>
+                                                <strong style="color:#374151;"><t t-esc="getFilteredDpResults().length"/></strong>
                                             </small>
-                                            <div class="d-flex gap-1">
-                                                <button class="btn btn-sm btn-outline-secondary"
+                                            <div style="display:flex; gap:4px;">
+                                                <button style="background:#fff; border:1px solid #e5e7eb; border-radius:6px;
+                                                               padding:4px 10px; cursor:pointer; color:#374151; font-size:13px;"
                                                         t-att-disabled="state.step4Page === 1"
                                                         t-on-click="() => this.onStep4PageChange(state.step4Page - 1)">
                                                     <span class="fa fa-angle-left"/>
                                                 </button>
                                                 <t t-foreach="getPageNumbers()" t-as="pg" t-key="pg_index">
                                                     <button t-if="pg !== '...'"
-                                                            t-att-class="'btn btn-sm ' + (pg === state.step4Page ? 'btn-dark' : 'btn-outline-secondary')"
+                                                            t-attf-style="border-radius:6px; padding:4px 10px; font-size:13px;
+                                                                           cursor:pointer; font-weight:600; border:1px solid;
+                                                                           #{pg === state.step4Page ?
+                                                                             'background:#111827; color:#fff; border-color:#111827;' :
+                                                                             'background:#fff; color:#374151; border-color:#e5e7eb;'}"
                                                             t-on-click="() => this.onStep4PageChange(pg)">
                                                         <t t-esc="pg"/>
                                                     </button>
-                                                    <span t-if="pg === '...'" class="align-self-center px-1">…</span>
+                                                    <span t-if="pg === '...'"
+                                                          style="align-self:center; padding:0 4px; color:#9ca3af;">…</span>
                                                 </t>
-                                                <button class="btn btn-sm btn-outline-secondary"
+                                                <button style="background:#fff; border:1px solid #e5e7eb; border-radius:6px;
+                                                               padding:4px 10px; cursor:pointer; color:#374151; font-size:13px;"
                                                         t-att-disabled="state.step4Page === getTotalPages()"
                                                         t-on-click="() => this.onStep4PageChange(state.step4Page + 1)">
                                                     <span class="fa fa-angle-right"/>
@@ -801,25 +1246,60 @@
                                             </div>
                                         </div>
                                     </div>
-
-
-                                    <!-- Apply button -->
-                                    <div class="mt-3 pt-3 d-flex justify-content-between align-items-center"
-                                         style="border-top:1px solid #dee2e6;">
-                                        <button class="btn btn-outline-secondary btn-sm"
-                                                t-on-click="()=>this.goToStep('#dp_step5_section','#dp_step4_section')">
-                                            <span class="fa fa-arrow-left me-1"/>Previous
-                                        </button>
-                                        <button class="btn btn-success btn-sm"
-                                                t-on-click="onDpApply"
-                                                t-att-disabled="!getDpResults().length or state.loading">
-                                            <span class="fa fa-check me-1"/>Confirm &amp; Apply to Pricelists
-                                        </button>
+                                    <div style="display:flex; justify-content:space-between; align-items:center;
+                                                    padding:12px 16px; background:#f9fafb; border-top:1px solid #f0f0f0;">
+                                        <button style="background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+                                                           padding:9px 18px; font-size:13px; font-weight:600; color:#374151;
+                                                           cursor:pointer; display:flex; align-items:center; gap:6px;"
+                                                t-on-click="()=>this.goToStep('#dp_step6_section','#dp_step5_section')">
+                                                <span class="fa fa-arrow-left"/>Previous
+                                            </button>
                                     </div>
-                                </div>
 
+                                    <!-- ── Sticky bottom action bar (like reference image) ── -->
+                                    <div style="margin:16px 24px 24px; background:#fff;
+                                                border:2px solid #22c55e; border-radius:12px;
+                                                padding:16px 20px; display:flex; align-items:center;
+                                                justify-content:space-between; gap:16px; flex-wrap:wrap;
+                                                box-shadow:0 2px 12px rgba(6,182,212,0.12);">
+
+                                        <div style="display:flex; align-items:flex-start; gap:10px; flex:1;">
+                                            <i class="fa fa-info-circle mt-1"
+                                               style="color:#06b6d4; font-size:14px; flex-shrink:0;"/>
+                                            <small style="color:#374151; line-height:1.6; font-size:12px;">
+                                                <strong>Warning:</strong>
+                                                By clicking <em>"Confirm &amp; Apply to Pricelists"</em>,
+                                                the AI-suggested prices will be saved to the respective pricelists
+                                                immediately.
+                                                These updated prices will reflect across the <strong>website</strong> and
+                                                on any new
+                                                <strong>Sales Orders</strong>
+                                                created hereafter.
+                                                Please review the suggested pricing carefully before confirming.
+                                            </small>
+                                        </div>
+
+                                        <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
+
+                                            <button style="background:linear-gradient(135deg,#16a34a,#22c55e); color:#fff;
+                                                           border:none; border-radius:8px; padding:9px 22px; font-size:13px;
+                                                           font-weight:700; cursor:pointer; display:flex; align-items:center; gap:8px;
+                                                           box-shadow:0 3px 12px rgba(34,197,94,0.4);"
+                                                    t-on-click="onDpApply"
+                                                    t-att-disabled="!getFilteredDpResults().length or state.loading">
+                                                <i class="fa fa-check"/>
+                                                Confirm &amp; Apply to Pricelists
+                                                <span style="background:rgba(255,255,255,0.25); border-radius:20px;
+                                                             padding:1px 8px; font-size:11px; font-weight:800;">
+                                                    <t t-esc="getFilteredDpResults().length"/>
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                </div>
                             </div>
-                        </div>
+                    </div>
                     </div>
 
                 </div>

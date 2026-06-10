@@ -4,452 +4,680 @@
 <t t-name="dynamic_pricing_analysis_dashboard_template">
 <div class="dpad-shell">
 
-    <!-- ═══════════════════════════════════════════════════════
-         HEADER — Brand + Filters
-    ════════════════════════════════════════════════════════ -->
+    <!-- ═══════════════════ HEADER ═══════════════════ -->
     <header class="dpad-header">
         <div class="dpad-header__brand">
-            <div class="dpad-header__icon">
-                <i class="fa fa-line-chart"/>
-            </div>
+            <div class="dpad-header__icon"><i class="fa fa-line-chart"/></div>
             <div>
                 <div class="dpad-header__kicker">Dynamic Pricing AI</div>
-                <h1 class="dpad-header__title">Pricing Intelligence</h1>
+                <h1 class="dpad-header__title">Pricing Intelligence Dashboard</h1>
                 <p class="dpad-header__sub">
-                    <t t-if="card.analyzed_on">
-                        Last AI run: <strong><t t-esc="card.analyzed_on"/></strong>
+                    <t t-if="card.applied_on">
+                        Last applied: <strong><t t-esc="card.applied_on"/></strong>
+                        <t t-if="card.analyzed_on"> · Analysed: <strong><t t-esc="card.analyzed_on"/></strong></t>
                     </t>
-                    <t t-else="">No AI run yet — run analysis from the dashboard</t>
+                    <t t-else="">No AI pricing applied yet — run analysis and apply from the main dashboard</t>
                 </p>
             </div>
         </div>
-
         <div class="dpad-header__controls">
-            <div class="dpad-control-group">
-                <label>Period</label>
-                <div class="dpad-pill-group">
-                    <button type="button" t-att-class="periodButtonClass('last_7_days')"
-                            t-on-click="() => this.setPeriod('last_7_days')">7 Days</button>
-                    <button type="button" t-att-class="periodButtonClass('last_30_days')"
-                            t-on-click="() => this.setPeriod('last_30_days')">30 Days</button>
-                    <button type="button" t-att-class="periodButtonClass('custom')"
-                            t-on-click="() => this.setPeriod('custom')">Custom</button>
-                </div>
-            </div>
-            <div class="dpad-control-group">
-                <label>Top Products</label>
-                <div class="dpad-pill-group">
-                    <button type="button" t-att-class="limitButtonClass(5)"
-                            t-on-click="() => this.setLimit(5)">5</button>
-                    <button type="button" t-att-class="limitButtonClass(10)"
-                            t-on-click="() => this.setLimit(10)">10</button>
-                    <button type="button" t-att-class="limitButtonClass(15)"
-                            t-on-click="() => this.setLimit(15)">15</button>
-                </div>
-            </div>
-            <div t-if="state.period === 'custom'" class="dpad-date-row">
-                <div class="dpad-date-field">
-                    <label>From</label>
-                    <input type="date" t-att-value="state.dateFrom"
-                           t-on-change="(ev) => this.onCustomDateChange('dateFrom', ev)"/>
-                </div>
-                <div class="dpad-date-field">
-                    <label>To</label>
-                    <input type="date" t-att-value="state.dateTo"
-                           t-on-change="(ev) => this.onCustomDateChange('dateTo', ev)"/>
-                </div>
-            </div>
+            <button type="button" class="dpad-refresh-btn" t-on-click="() => this.loadDashboard()">
+                <i class="fa fa-refresh me-1"/>Refresh
+            </button>
         </div>
     </header>
 
-    <!-- ═══════════════════════════════════════════════════════
-         LOADING / ERROR
-    ════════════════════════════════════════════════════════ -->
+    <!-- ═══════════════════ LOADING / ERROR ═══════════════════ -->
     <div t-if="state.loading" class="dpad-state">
-        <div class="dpad-state__spinner">
-            <span class="fa fa-spinner fa-spin"/>
-        </div>
-        <p>Building pricing intelligence...</p>
+        <div class="dpad-state__spinner"/>
+        <p>Loading pricing data...</p>
     </div>
 
     <div t-if="state.error and !state.loading" class="dpad-state dpad-state--error">
-        <span class="fa fa-exclamation-circle"/>
+        <i class="fa fa-exclamation-circle me-2"/>
         <p><t t-esc="state.error"/></p>
     </div>
 
     <t t-if="!state.loading and !state.error">
 
-        <!-- ═════════════════════════════════════════════════
-             DATE CONTEXT STRIP
-        ══════════════════════════════════════════════════ -->
-        <div class="dpad-strip">
-            <span class="dpad-strip__item">
-                <i class="fa fa-calendar me-1"/>
-                <t t-esc="filters.date_from"/> — <t t-esc="filters.date_to"/>
-            </span>
-            <span class="dpad-strip__item">
-                <i class="fa fa-cube me-1"/>
-                <strong><t t-esc="summary.total_products || 0"/></strong> Products
-            </span>
-            <span class="dpad-strip__item">
-                <i class="fa fa-users me-1"/>
-                <strong><t t-esc="summary.total_segments || 0"/></strong> Segments
-            </span>
-            <span class="dpad-strip__item">
-                <i class="fa fa-tags me-1"/>
-                <strong><t t-esc="summary.analyzed_products || 0"/></strong> AI Results
-            </span>
-        </div>
-
-        <!-- ═════════════════════════════════════════════════
-             ROW 1 — KPI CARDS
-        ══════════════════════════════════════════════════ -->
-        <div class="dpad-kpi-row">
-
-            <div class="dpad-kpi dpad-kpi--cyan">
-                <div class="dpad-kpi__icon"><i class="fa fa-shopping-cart"/></div>
-                <div class="dpad-kpi__body">
-                    <div class="dpad-kpi__value"><t t-esc="formatMoney(summary.total_revenue)"/></div>
-                    <div class="dpad-kpi__label">Total Revenue</div>
-                    <div class="dpad-kpi__sub"><t t-esc="formatNumber(summary.total_qty_sold)"/> units sold</div>
-                </div>
+        <!-- No data state -->
+        <t t-if="!allProductRows.length">
+            <div class="dpad-state">
+                <i class="fa fa-magic" style="font-size:36px; color:#d1d5db; margin-bottom:12px;"/>
+                <p style="font-size:14px; color:#6b7280;">No pricing data found. Apply AI pricing from the main dashboard first.</p>
             </div>
+        </t>
 
-            <div class="dpad-kpi dpad-kpi--green">
-                <div class="dpad-kpi__icon"><i class="fa fa-arrow-up"/></div>
-                <div class="dpad-kpi__body">
-                    <div class="dpad-kpi__value"><t t-esc="summary.increase_count || 0"/></div>
-                    <div class="dpad-kpi__label">Price Increases</div>
-                    <div class="dpad-kpi__sub">AI recommended increase</div>
-                </div>
-            </div>
+        <t t-else="">
 
-            <div class="dpad-kpi dpad-kpi--pink">
-                <div class="dpad-kpi__icon"><i class="fa fa-arrow-down"/></div>
-                <div class="dpad-kpi__body">
-                    <div class="dpad-kpi__value"><t t-esc="summary.decrease_count || 0"/></div>
-                    <div class="dpad-kpi__label">Price Decreases</div>
-                    <div class="dpad-kpi__sub">AI recommended decrease</div>
-                </div>
-            </div>
+            <!-- ═══════════════════ KPI ROW ═══════════════════ -->
+            <div class="dpad-kpi-row">
 
-            <div class="dpad-kpi dpad-kpi--orange">
-                <div class="dpad-kpi__icon"><i class="fa fa-percent"/></div>
-                <div class="dpad-kpi__body">
-                    <div class="dpad-kpi__value"><t t-esc="formatNumber(summary.avg_margin_lift)"/>%</div>
-                    <div class="dpad-kpi__label">Avg Margin Lift</div>
-                    <div class="dpad-kpi__sub">AI margin after vs before</div>
-                </div>
-            </div>
-
-            <div class="dpad-kpi dpad-kpi--blue">
-                <div class="dpad-kpi__icon"><i class="fa fa-exchange"/></div>
-                <div class="dpad-kpi__body">
-                    <div class="dpad-kpi__value"><t t-esc="formatNumber(summary.avg_price_change)"/>%</div>
-                    <div class="dpad-kpi__label">Avg Price Move</div>
-                    <div class="dpad-kpi__sub">across actionable decisions</div>
-                </div>
-            </div>
-
-        </div>
-
-        <!-- ═════════════════════════════════════════════════
-             ROW 2 — HERO PRODUCT + DECISION MIX
-        ══════════════════════════════════════════════════ -->
-        <div class="dpad-row2">
-
-            <!-- Hero Product -->
-            <div class="dpad-panel dpad-hero">
-                <div class="dpad-panel__head">
-                    <span class="dpad-kicker">Top Opportunity</span>
-                    <h2>Best product to review</h2>
-                </div>
-                <t t-if="heroProduct">
-                    <div class="dpad-hero__top">
-                        <div class="dpad-hero__rank">#1</div>
-                        <span t-att-class="decisionClass(heroProduct.decision)">
-                            <i t-att-class="'fa ' + decisionIcon(heroProduct.decision) + ' me-1'"/>
-                            <t t-esc="decisionLabel(heroProduct.decision)"/>
-                        </span>
-                    </div>
-                    <h3 class="dpad-hero__name"><t t-esc="heroProduct.product_name"/></h3>
-                    <div class="dpad-hero__segment" t-if="heroProduct.segment_name">
-                        <i class="fa fa-users me-1"/><t t-esc="heroProduct.segment_name"/>
-                    </div>
-                    <p class="dpad-hero__reason"><t t-esc="heroProduct.reason"/></p>
-                    <div class="dpad-hero__prices">
-                        <div class="dpad-price-box">
-                            <span>Current Price</span>
-                            <strong><t t-esc="formatMoney(heroProduct.current_price)"/></strong>
-                        </div>
-                        <div class="dpad-price-arrow"><i class="fa fa-long-arrow-right"/></div>
-                        <div class="dpad-price-box dpad-price-box--ai">
-                            <span>AI Suggested</span>
-                            <strong><t t-esc="formatMoney(heroProduct.suggested_price)"/></strong>
-                        </div>
-                    </div>
-                    <div class="dpad-hero__metrics">
-                        <div class="dpad-metric">
-                            <span>Revenue</span>
-                            <strong><t t-esc="formatMoney(heroProduct.revenue)"/></strong>
-                        </div>
-                        <div class="dpad-metric">
-                            <span>Units Sold</span>
-                            <strong><t t-esc="formatNumber(heroProduct.qty_sold)"/></strong>
-                        </div>
-                        <div class="dpad-metric">
-                            <span>Price Delta</span>
-                            <strong t-att-class="heroProduct.price_delta >= 0 ? 'dpad-positive' : 'dpad-negative'">
-                                <t t-esc="formatPct(heroProduct.price_delta_pct)"/>
-                            </strong>
-                        </div>
-                        <div class="dpad-metric">
-                            <span>Margin</span>
-                            <strong>
-                                <t t-esc="formatNumber(heroProduct.margin_before)"/>%
-                                <i class="fa fa-arrow-right mx-1" style="font-size:10px;"/>
-                                <t t-esc="formatNumber(heroProduct.margin_after)"/>%
-                            </strong>
-                        </div>
-                    </div>
-                </t>
-                <div t-else="" class="dpad-empty">
-                    <i class="fa fa-info-circle me-2"/>
-                    No products found. Select products and run AI analysis first.
-                </div>
-            </div>
-
-            <!-- Decision Mix -->
-            <div class="dpad-panel dpad-decision-mix">
-                <div class="dpad-panel__head">
-                    <span class="dpad-kicker">AI Decision Split</span>
-                    <h2>Decision breakdown</h2>
-                </div>
-                <div class="dpad-mix-list">
-                    <t t-foreach="decisionMix" t-as="item" t-key="item.key">
-                        <div class="dpad-mix-item" t-if="item.count > 0">
-                            <div class="dpad-mix-item__top">
-                                <div class="dpad-mix-item__dot" t-att-style="'background:' + item.color"/>
-                                <span class="dpad-mix-item__label"><t t-esc="item.label"/></span>
-                                <span class="dpad-mix-item__count"><t t-esc="item.count"/></span>
-                                <span class="dpad-mix-item__pct"><t t-esc="item.percent"/>%</span>
-                            </div>
-                            <div class="dpad-mix-bar">
-                                <div class="dpad-mix-bar__fill"
-                                     t-att-style="'width:' + item.percent + '%; background:' + item.color"/>
-                            </div>
-                        </div>
-                    </t>
-                </div>
-
-                <!-- Action map -->
-                <div class="dpad-action-grid">
-                    <div class="dpad-action-tile dpad-action-tile--green">
-                        <i class="fa fa-arrow-up"/>
-                        <strong><t t-esc="summary.increase_count || 0"/></strong>
-                        <span>Increase</span>
-                    </div>
-                    <div class="dpad-action-tile dpad-action-tile--red">
-                        <i class="fa fa-arrow-down"/>
-                        <strong><t t-esc="summary.decrease_count || 0"/></strong>
-                        <span>Decrease</span>
-                    </div>
-                    <div class="dpad-action-tile dpad-action-tile--yellow">
-                        <i class="fa fa-minus"/>
-                        <strong><t t-esc="summary.hold_count || 0"/></strong>
-                        <span>Hold</span>
-                    </div>
-                    <div class="dpad-action-tile dpad-action-tile--grey">
-                        <i class="fa fa-ban"/>
-                        <strong><t t-esc="summary.skip_count || 0"/></strong>
-                        <span>Skip</span>
+                <div class="dpad-kpi dpad-kpi--blue">
+                    <div class="dpad-kpi__icon"><i class="fa fa-cube"/></div>
+                    <div class="dpad-kpi__body">
+                        <div class="dpad-kpi__value"><t t-esc="summary.total_products || 0"/></div>
+                        <div class="dpad-kpi__label">Products in Log</div>
+                        <div class="dpad-kpi__sub"><t t-esc="summary.total_rows || 0"/>
+                            total rows (product × segment)</div>
                     </div>
                 </div>
-            </div>
 
-        </div>
+                <div class="dpad-kpi dpad-kpi--green">
+                    <div class="dpad-kpi__icon"><i class="fa fa-percent"/></div>
+                    <div class="dpad-kpi__body">
+                        <div class="dpad-kpi__value"><t t-esc="formatNumber(summary.avg_margin_before)"/>%</div>
+                        <div class="dpad-kpi__label">Avg Margin Before</div>
+                        <div class="dpad-kpi__sub">Before AI pricing</div>
+                    </div>
+                </div>
 
-        <!-- ═════════════════════════════════════════════════
-             ROW 3 — SEGMENT PERFORMANCE
-        ══════════════════════════════════════════════════ -->
-        <div class="dpad-panel dpad-segment-panel" t-if="hasSegments">
-            <div class="dpad-panel__head">
-                <span class="dpad-kicker">Segment Intelligence</span>
-                <h2>Performance by customer segment</h2>
-            </div>
-            <div class="dpad-segment-table-wrap">
-                <table class="dpad-segment-table">
-                    <thead>
-                        <tr>
-                            <th>Segment</th>
-                            <th>Products</th>
-                            <th>Revenue</th>
-                            <th>Margin Before</th>
-                            <th>Margin After</th>
-                            <th>Improvement</th>
-                            <th>Increase</th>
-                            <th>Decrease</th>
-                            <th>Hold</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <t t-foreach="segmentData" t-as="seg" t-key="seg.segment_name">
-                            <tr>
-                                <td>
-                                    <div class="dpad-seg-name">
-                                        <div class="dpad-seg-dot"/>
-                                        <t t-esc="seg.segment_name"/>
-                                    </div>
-                                </td>
-                                <td class="dpad-td-center"><t t-esc="seg.products"/></td>
-                                <td><t t-esc="formatMoney(seg.revenue)"/></td>
-                                <td>
-                                    <div class="dpad-margin-cell">
-                                        <div class="dpad-margin-bar">
-                                            <div class="dpad-margin-bar__fill dpad-margin-bar__fill--before"
-                                                 t-att-style="'width:' + marginBarWidth(seg.avg_margin_before)"/>
-                                        </div>
-                                        <span><t t-esc="formatNumber(seg.avg_margin_before)"/>%</span>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="dpad-margin-cell">
-                                        <div class="dpad-margin-bar">
-                                            <div class="dpad-margin-bar__fill dpad-margin-bar__fill--after"
-                                                 t-att-style="'width:' + marginBarWidth(seg.avg_margin_after)"/>
-                                        </div>
-                                        <span><t t-esc="formatNumber(seg.avg_margin_after)"/>%</span>
-                                    </div>
-                                </td>
-                                <td>
-                                    <span t-att-class="marginDeltaClass(seg.avg_margin_before, seg.avg_margin_after)">
-                                        <t t-esc="formatPct(seg.margin_improvement)"/>
-                                    </span>
-                                </td>
-                                <td class="dpad-td-center dpad-positive"><t t-esc="seg.increase"/></td>
-                                <td class="dpad-td-center dpad-negative"><t t-esc="seg.decrease"/></td>
-                                <td class="dpad-td-center dpad-neutral"><t t-esc="seg.hold"/></td>
-                            </tr>
-                        </t>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- ═════════════════════════════════════════════════
-             ROW 4 — TOP PRODUCTS PIPELINE
-        ══════════════════════════════════════════════════ -->
-        <div class="dpad-panel" t-if="hasProducts">
-            <div class="dpad-panel__head">
-                <span class="dpad-kicker">Opportunity Pipeline</span>
-                <h2>Top products by sales impact</h2>
-            </div>
-            <div class="dpad-pipeline">
-                <t t-foreach="topProducts" t-as="product" t-key="product.product_id + '_' + product.segment_name">
-                    <div class="dpad-pipeline-card">
-                        <div class="dpad-pipeline-card__top">
-                            <div class="dpad-pipeline-card__rank">#<t t-esc="product_index + 1"/></div>
-                            <span t-att-class="decisionClass(product.decision)">
-                                <i t-att-class="'fa ' + decisionIcon(product.decision) + ' me-1'"/>
-                                <t t-esc="decisionLabel(product.decision)"/>
+                <div class="dpad-kpi dpad-kpi--orange">
+                    <div class="dpad-kpi__icon"><i class="fa fa-magic"/></div>
+                    <div class="dpad-kpi__body">
+                        <div class="dpad-kpi__value"><t t-esc="formatNumber(summary.avg_margin_after)"/>%</div>
+                        <div class="dpad-kpi__label">Avg Margin After</div>
+                        <div class="dpad-kpi__sub">
+                            <span t-att-class="deltaClass(summary.avg_margin_lift)">
+                                <t t-esc="formatPct(summary.avg_margin_lift)"/>
+                                lift
                             </span>
                         </div>
-                        <h4 class="dpad-pipeline-card__name"><t t-esc="product.product_name"/></h4>
-                        <div class="dpad-pipeline-card__segment" t-if="product.segment_name">
-                            <i class="fa fa-tag me-1"/><t t-esc="product.segment_name"/>
+                    </div>
+                </div>
+
+                <div class="dpad-kpi dpad-kpi--cyan">
+                    <div class="dpad-kpi__icon"><i class="fa fa-list-alt"/></div>
+                    <div class="dpad-kpi__body">
+                        <div class="dpad-kpi__value"><t t-esc="summary.pricelists_updated || 0"/></div>
+                        <div class="dpad-kpi__label">Pricelist Items Updated</div>
+                        <div class="dpad-kpi__sub"><t t-esc="summary.total_tokens || 0"/>
+                            tokens used</div>
+                    </div>
+                </div>
+
+                <div class="dpad-kpi dpad-kpi--pink">
+                    <div class="dpad-kpi__icon"><i class="fa fa-exclamation-triangle"/></div>
+                    <div class="dpad-kpi__body">
+                        <div class="dpad-kpi__value"><t t-esc="totalAlerts"/></div>
+                        <div class="dpad-kpi__label">Active Alerts</div>
+                        <div class="dpad-kpi__sub">
+                            <t t-esc="summary.negative_margin_count || 0"/>
+                            neg. margin ·
+                            <t t-esc="summary.out_of_stock_count || 0"/>
+                            out of stock
                         </div>
-                        <div class="dpad-pipeline-card__bar">
-                            <div t-att-style="'width:' + barWidth(product.revenue, maxRevenue)"/>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- ═══════════════════ ALERT BANNER ═══════════════════ -->
+            <div t-if="totalAlerts > 0" class="dpad-alert-banner">
+                <div class="dpad-alert-banner__inner">
+                    <i class="fa fa-exclamation-triangle me-2"/>
+                    <strong><t t-esc="totalAlerts"/>
+                        products need attention:</strong>
+                    <span t-if="summary.negative_margin_count > 0" class="dpad-alert-chip dpad-alert-chip--red">
+                        <t t-esc="summary.negative_margin_count"/>
+                        Negative Margin
+                    </span>
+                    <span t-if="summary.dead_stock_count > 0" class="dpad-alert-chip dpad-alert-chip--orange">
+                        <t t-esc="summary.dead_stock_count"/>
+                        Dead Stock
+                    </span>
+                    <span t-if="summary.out_of_stock_count > 0" class="dpad-alert-chip dpad-alert-chip--red">
+                        <t t-esc="summary.out_of_stock_count"/>
+                        Out of Stock
+                    </span>
+                    <span t-if="summary.overstock_count > 0" class="dpad-alert-chip dpad-alert-chip--blue">
+                        <t t-esc="summary.overstock_count"/>
+                        Overstock
+                    </span>
+                </div>
+            </div>
+
+            <!-- ═══════════════════ TABS ═══════════════════ -->
+            <div class="dpad-tabs">
+                <button type="button" t-att-class="'dpad-tab' + (state.activeTab === 'impact' ? ' active' : '')"
+                        t-on-click="() => this.setTab('impact')">
+                    <i class="fa fa-magic me-1"/>AI Price Impact
+                </button>
+                <button type="button" t-att-class="'dpad-tab' + (state.activeTab === 'products' ? ' active' : '')"
+                        t-on-click="() => this.setTab('products')">
+                    <i class="fa fa-table me-1"/>All Log Products
+                </button>
+                <button type="button" t-att-class="'dpad-tab' + (state.activeTab === 'segments' ? ' active' : '')"
+                        t-on-click="() => this.setTab('segments')">
+                    <i class="fa fa-users me-1"/>Segment Performance
+                </button>
+                <button type="button" t-att-class="'dpad-tab' + (state.activeTab === 'history' ? ' active' : '')"
+                        t-on-click="() => this.setTab('history')">
+                    <i class="fa fa-history me-1"/>AI Run History
+                </button>
+                <button type="button" t-att-class="'dpad-tab' + (state.activeTab === 'alerts' ? ' active' : '')"
+                        t-on-click="() => this.setTab('alerts')">
+                    <i class="fa fa-bell me-1"/>Alerts
+                    <t t-if="totalAlerts > 0">
+                        <span class="dpad-alert-chip dpad-alert-chip--red ms-1"><t t-esc="totalAlerts"/></span>
+                    </t>
+                </button>
+            </div>
+
+            <!-- ═══════════════════ TAB: AI PRICE IMPACT ═══════════════════ -->
+            <div t-if="state.activeTab === 'impact'" class="dpad-tab-content">
+
+                <!-- Filter bar -->
+                <div class="dpad-filter-bar">
+                    <input type="text" class="dpad-search-input"
+                           placeholder="Search product or segment..."
+                           t-att-value="state.impactSearch"
+                           t-on-input="(ev) => { this.state.impactSearch = ev.target.value; }"/>
+                    <div class="dpad-filter-chips">
+                        <button type="button"
+                                t-att-class="'dpad-chip' + (state.impactFilter === 'all' ? ' active' : '')"
+                                t-on-click="() => this.setImpactFilter('all')">All</button>
+                        <button type="button"
+                                t-att-class="'dpad-chip' + (state.impactFilter === 'increase' ? ' active' : '')"
+                                t-on-click="() => this.setImpactFilter('increase')">
+                            <i class="fa fa-arrow-up me-1"/>Increased
+                        </button>
+                        <button type="button"
+                                t-att-class="'dpad-chip' + (state.impactFilter === 'decrease' ? ' active' : '')"
+                                t-on-click="() => this.setImpactFilter('decrease')">
+                            <i class="fa fa-arrow-down me-1"/>Decreased
+                        </button>
+                        <button type="button"
+                                t-att-class="'dpad-chip' + (state.impactFilter === 'hold' ? ' active' : '')"
+                                t-on-click="() => this.setImpactFilter('hold')">
+                            <i class="fa fa-minus me-1"/>Held
+                        </button>
+                        <button type="button"
+                                t-att-class="'dpad-chip' + (state.impactFilter === 'skip' ? ' active' : '')"
+                                t-on-click="() => this.setImpactFilter('skip')">
+                            <i class="fa fa-ban me-1"/>Skipped
+                        </button>
+                    </div>
+                    <span class="dpad-result-count"><t t-esc="aiImpactRows.length"/>
+                        rows</span>
+                </div>
+
+                <t t-if="aiImpactRows.length === 0">
+                    <div class="dpad-empty">
+                        <i class="fa fa-magic me-2"/>No products match the current filter.
+                    </div>
+                </t>
+
+                <!-- AI Impact Cards grid -->
+                <div t-else="" class="dpad-impact-grid">
+                    <t t-foreach="aiImpactRows" t-as="row" t-key="row.product_id + '_' + row.segment">
+                        <div class="dpad-impact-card">
+
+                            <div class="dpad-impact-card__header">
+                                <div>
+                                    <div class="dpad-impact-card__name"><t t-esc="row.product_name"/></div>
+                                    <div class="dpad-impact-card__segment">
+                                        <i class="fa fa-tag me-1"/>
+                                        <t t-esc="row.segment || 'Default'"/>
+                                        <span class="ms-2 dpad-td-muted"><t t-esc="row.category"/></span>
+                                    </div>
+                                </div>
+                                <span t-att-class="decisionClass(row.decision)">
+                                    <i t-att-class="decisionIcon(row.decision) + ' me-1'"/>
+                                    <t t-esc="row.decision"/>
+                                </span>
+                            </div>
+
+                            <!-- Price comparison -->
+                            <div class="dpad-impact-card__prices">
+                                <div class="dpad-impact-price">
+                                    <div class="dpad-impact-price__label">Old Price</div>
+                                    <div class="dpad-impact-price__value"><t t-esc="formatMoney(row.original_price)"/></div>
+                                </div>
+                                <div class="dpad-impact-arrow">
+                                    <i t-att-class="row.price_delta > 0 ? 'fa fa-long-arrow-right dpad-positive' : row.price_delta &lt; 0 ? 'fa fa-long-arrow-right dpad-negative' : 'fa fa-long-arrow-right dpad-neutral'"/>
+                                </div>
+                                <div class="dpad-impact-price">
+                                    <div class="dpad-impact-price__label">AI Price <span class="dpad-ai-badge">AI</span></div>
+                                    <div class="dpad-impact-price__value dpad-impact-price__value--ai">
+                                        <t t-esc="formatMoney(row.ai_price)"/>
+                                    </div>
+                                </div>
+                                <div class="dpad-impact-price">
+                                    <div class="dpad-impact-price__label">Δ Value</div>
+                                    <div t-att-class="'dpad-impact-price__value ' + deltaClass(row.price_delta)">
+                                        <t t-esc="(row.price_delta >= 0 ? '+' : '') + formatMoney(row.price_delta)"/>
+                                    </div>
+                                </div>
+                                <div class="dpad-impact-price">
+                                    <div class="dpad-impact-price__label">Δ %</div>
+                                    <div t-att-class="'dpad-impact-price__value ' + deltaClass(row.price_delta_pct)">
+                                        <t t-esc="formatPct(row.price_delta_pct)"/>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Margin metrics -->
+                            <div class="dpad-impact-card__metrics">
+                                <div class="dpad-impact-metric">
+                                    <div class="dpad-impact-metric__label">Cost Price</div>
+                                    <div class="dpad-impact-metric__value"><t t-esc="formatMoney(row.cost_price)"/></div>
+                                </div>
+                                <div class="dpad-impact-metric">
+                                    <div class="dpad-impact-metric__label">Margin Before</div>
+                                    <div t-att-class="'dpad-impact-metric__value ' + marginClass(row.margin_before)">
+                                        <t t-esc="formatNumber(row.margin_before)"/>%
+                                    </div>
+                                </div>
+                                <div class="dpad-impact-metric">
+                                    <div class="dpad-impact-metric__label">Margin After</div>
+                                    <div t-att-class="'dpad-impact-metric__value ' + marginClass(row.margin_after)">
+                                        <t t-esc="formatNumber(row.margin_after)"/>%
+                                        <span t-att-class="'dpad-margin-delta ' + deltaClass(row.margin_delta)">
+                                            (<t t-esc="formatPct(row.margin_delta)"/>)
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="dpad-impact-metric">
+                                    <div class="dpad-impact-metric__label">Stock</div>
+                                    <div class="dpad-impact-metric__value">
+                                        <span t-att-class="stockBadgeClass(row.stock_status)">
+                                            <t t-esc="stockLabel(row.stock_status)"/>
+                                        </span>
+                                        <span class="dpad-td-muted ms-1" style="font-size:11px;">
+                                            <t t-esc="formatNumber(row.qty_on_hand)"/>
+                                            units
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- AI Reason -->
+<!--                            <t t-if="row.ai_reason">-->
+<!--                                <div class="dpad-impact-card__reason">-->
+<!--                                    <i class="fa fa-lightbulb-o me-1"/>-->
+<!--                                    <t t-esc="row.ai_reason"/>-->
+<!--                                </div>-->
+<!--                            </t>-->
+
                         </div>
-                        <div class="dpad-pipeline-card__stats">
-                            <div>
-                                <span>Revenue</span>
-                                <strong><t t-esc="formatMoney(product.revenue)"/></strong>
-                            </div>
-                            <div>
-                                <span>Sold</span>
-                                <strong><t t-esc="formatNumber(product.qty_sold)"/></strong>
-                            </div>
-                            <div>
-                                <span>AI Price</span>
-                                <strong><t t-esc="formatMoney(product.suggested_price)"/></strong>
-                            </div>
-                            <div>
-                                <span>Margin Δ</span>
-                                <strong t-att-class="marginDeltaClass(product.margin_before, product.margin_after)">
-                                    <t t-esc="formatNumber(product.margin_before)"/>% → <t t-esc="formatNumber(product.margin_after)"/>%
-                                </strong>
-                            </div>
-                        </div>
-                        <p class="dpad-pipeline-card__reason"><t t-esc="product.reason"/></p>
+                    </t>
+                </div>
+            </div>
+
+            <!-- ═══════════════════ TAB: ALL LOG PRODUCTS ═══════════════════ -->
+            <div t-if="state.activeTab === 'products'" class="dpad-tab-content">
+
+                <div class="dpad-filter-bar">
+                    <input type="text" class="dpad-search-input"
+                           placeholder="Search product, segment, or category..."
+                           t-att-value="state.productSearch"
+                           t-on-input="(ev) => { this.state.productSearch = ev.target.value; }"/>
+                    <span class="dpad-result-count"><t t-esc="filteredProductRows.length"/>
+                        rows</span>
+                </div>
+
+                <div class="dpad-table-wrap">
+                    <table class="dpad-table">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Segment</th>
+                                <th>Category</th>
+                                <th class="dpad-th-right">Cost</th>
+                                <th class="dpad-th-right">Old Price</th>
+                                <th class="dpad-th-right">AI Price</th>
+                                <th class="dpad-th-right">Price Δ</th>
+                                <th class="dpad-th-center">Decision</th>
+                                <th class="dpad-th-right">Margin Before</th>
+                                <th class="dpad-th-right">Margin After</th>
+                                <th>Stock</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-if="filteredProductRows.length === 0">
+                                <tr>
+                                    <td colspan="12" class="dpad-empty-row">
+                                        <i class="fa fa-info-circle me-2"/>No products match the search.
+                                    </td>
+                                </tr>
+                            </t>
+                            <t t-foreach="filteredProductRows" t-as="row" t-key="row.product_id + '_' + row.segment">
+                                <tr t-att-class="row.alert_flags and row.alert_flags.length ? 'dpad-row-alert' : ''">
+                                    <td class="dpad-td-product">
+                                        <span class="dpad-product-name"><t t-esc="row.product_name"/></span>
+                                    </td>
+                                    <td>
+                                        <span style="background:#f0f4ff; color:#3730a3; border-radius:6px; padding:2px 8px; font-size:11px; font-weight:600; border:1px solid #dde3ff;">
+                                            <t t-esc="row.segment || 'Default'"/>
+                                        </span>
+                                    </td>
+                                    <td class="dpad-td-muted"><t t-esc="row.category"/></td>
+                                    <td class="dpad-td-right"><t t-esc="formatMoney(row.cost_price)"/></td>
+                                    <td class="dpad-td-right"><t t-esc="formatMoney(row.original_price)"/></td>
+                                    <td class="dpad-td-right">
+                                        <t t-if="row.ai_price">
+                                            <span class="dpad-ai-price"><t t-esc="formatMoney(row.ai_price)"/></span>
+                                            <span class="dpad-ai-badge">AI</span>
+                                        </t>
+                                        <t t-else=""><span class="dpad-td-muted">—</span></t>
+                                    </td>
+                                    <td class="dpad-td-right">
+                                        <t t-if="row.ai_price">
+                                            <span t-att-class="deltaClass(row.price_delta)">
+                                                <t t-esc="formatPct(row.price_delta_pct)"/>
+                                            </span>
+                                        </t>
+                                        <t t-else=""><span class="dpad-td-muted">—</span></t>
+                                    </td>
+                                    <td class="dpad-td-center">
+                                        <span t-att-class="decisionClass(row.decision)">
+                                            <i t-att-class="decisionIcon(row.decision) + ' me-1'"/>
+                                            <t t-esc="row.decision"/>
+                                        </span>
+                                    </td>
+                                    <td class="dpad-td-right">
+                                        <span t-att-class="marginClass(row.margin_before)">
+                                            <t t-esc="formatNumber(row.margin_before)"/>%
+                                        </span>
+                                    </td>
+                                    <td class="dpad-td-right">
+                                        <t t-if="row.margin_after">
+                                            <span t-att-class="marginClass(row.margin_after)">
+                                                <t t-esc="formatNumber(row.margin_after)"/>%
+                                            </span>
+                                            <span t-att-class="'dpad-margin-delta ' + deltaClass(row.margin_delta)">
+                                                (<t t-esc="formatPct(row.margin_delta)"/>)
+                                            </span>
+                                        </t>
+                                        <t t-else=""><span class="dpad-td-muted">—</span></t>
+                                    </td>
+                                    <td>
+                                        <span t-att-class="stockBadgeClass(row.stock_status)">
+                                            <t t-esc="stockLabel(row.stock_status)"/>
+                                        </span>
+                                        <div class="dpad-qty-label"><t t-esc="formatNumber(row.qty_on_hand)"/>
+                                            units</div>
+                                    </td>
+                                    <td style="max-width:200px; font-size:11px; color:#6b7280;">
+                                        <t t-esc="row.ai_reason || '—'"/>
+                                    </td>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ═══════════════════ TAB: SEGMENT PERFORMANCE ═══════════════════ -->
+            <div t-if="state.activeTab === 'segments'" class="dpad-tab-content">
+                <t t-if="segmentData.length === 0">
+                    <div class="dpad-empty">
+                        <i class="fa fa-info-circle me-2"/>No segment data available. Apply AI pricing first.
+                    </div>
+                </t>
+                <t t-else="">
+                    <div class="dpad-table-wrap">
+                        <table class="dpad-table">
+                            <thead>
+                                <tr>
+                                    <th>Segment</th>
+                                    <th class="dpad-th-center">Products</th>
+                                    <th class="dpad-th-right">Avg Margin Before</th>
+                                    <th class="dpad-th-right">Avg Margin After</th>
+                                    <th class="dpad-th-right">Margin Improvement</th>
+                                    <th class="dpad-th-center">Increased</th>
+                                    <th class="dpad-th-center">Decreased</th>
+                                    <th class="dpad-th-center">Hold</th>
+                                    <th class="dpad-th-center">Skip</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="segmentData" t-as="seg" t-key="seg.segment_name">
+                                    <tr>
+                                        <td>
+                                            <div class="dpad-seg-name">
+                                                <div class="dpad-seg-dot"/>
+                                                <strong><t t-esc="seg.segment_name"/></strong>
+                                            </div>
+                                        </td>
+                                        <td class="dpad-td-center"><t t-esc="seg.products"/></td>
+                                        <td class="dpad-td-right">
+                                            <span t-att-class="marginClass(seg.avg_margin_before)">
+                                                <t t-esc="formatNumber(seg.avg_margin_before)"/>%
+                                            </span>
+                                        </td>
+                                        <td class="dpad-td-right">
+                                            <span t-att-class="marginClass(seg.avg_margin_after)">
+                                                <t t-esc="formatNumber(seg.avg_margin_after)"/>%
+                                            </span>
+                                        </td>
+                                        <td class="dpad-td-right">
+                                            <span t-att-class="deltaClass(seg.margin_improvement)">
+                                                <t t-esc="formatPct(seg.margin_improvement)"/>
+                                            </span>
+                                        </td>
+                                        <td class="dpad-td-center dpad-positive"><t t-esc="seg.increase"/></td>
+                                        <td class="dpad-td-center dpad-negative"><t t-esc="seg.decrease"/></td>
+                                        <td class="dpad-td-center dpad-neutral"><t t-esc="seg.hold"/></td>
+                                        <td class="dpad-td-center dpad-neutral"><t t-esc="seg.skip"/></td>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
                     </div>
                 </t>
             </div>
-        </div>
 
-        <!-- ═════════════════════════════════════════════════
-             ROW 5 — IMPROVERS + AT RISK
-        ══════════════════════════════════════════════════ -->
-        <div class="dpad-row5">
+            <!-- ═══════════════════ TAB: AI RUN HISTORY ═══════════════════ -->
+            <div t-if="state.activeTab === 'history'" class="dpad-tab-content">
+                <t t-if="runHistory.length === 0">
+                    <div class="dpad-empty">
+                        <i class="fa fa-info-circle me-2"/>No AI runs yet.
+                    </div>
+                </t>
+                <t t-else="">
+                    <div class="dpad-run-history">
+                        <t t-foreach="runHistory" t-as="run" t-key="run.id">
+                            <div class="dpad-run-card">
+                                <div class="dpad-run-card__header" t-on-click="() => this.toggleRunExpand(run.id)"
+                                     style="cursor:pointer;">
+                                    <div class="dpad-run-card__date">
+                                        <i class="fa fa-calendar me-1"/>
+                                        <strong><t t-esc="run.date"/></strong>
+                                    </div>
+                                    <span t-att-class="runStatusClass(run.status)">
+                                        <t t-esc="run.status"/>
+                                    </span>
+                                    <span t-if="run.applied" class="dpad-applied-badge">
+                                        <i class="fa fa-check me-1"/>Applied to Pricelists
+                                    </span>
+                                    <span style="margin-left:auto; color:#9ca3af; font-size:12px;">
+                                        <i t-att-class="state.expandedRunId === run.id ? 'fa fa-chevron-up' : 'fa fa-chevron-down'"/>
+                                    </span>
+                                </div>
+                                <div class="dpad-run-card__stats">
+                                    <div class="dpad-run-stat">
+                                        <span>Products</span>
+                                        <strong><t t-esc="run.total_products"/></strong>
+                                    </div>
+                                    <div class="dpad-run-stat dpad-positive">
+                                        <span>Increased</span>
+                                        <strong><t t-esc="run.increase_count"/></strong>
+                                    </div>
+                                    <div class="dpad-run-stat dpad-negative">
+                                        <span>Decreased</span>
+                                        <strong><t t-esc="run.decrease_count"/></strong>
+                                    </div>
+                                    <div class="dpad-run-stat dpad-neutral">
+                                        <span>Hold</span>
+                                        <strong><t t-esc="run.hold_count"/></strong>
+                                    </div>
+                                    <div class="dpad-run-stat dpad-neutral">
+                                        <span>Skip</span>
+                                        <strong><t t-esc="run.skip_count"/></strong>
+                                    </div>
+                                    <div class="dpad-run-stat">
+                                        <span>Tokens</span>
+                                        <strong><t t-esc="run.total_tokens"/></strong>
+                                    </div>
+                                    <div t-if="run.applied" class="dpad-run-stat dpad-positive">
+                                        <span>Pricelists Updated</span>
+                                        <strong><t t-esc="run.pricelists_updated"/></strong>
+                                    </div>
+                                </div>
 
-            <!-- Top Margin Improvers -->
-            <div class="dpad-panel" t-if="topImprovers.length">
-                <div class="dpad-panel__head">
-                    <span class="dpad-kicker">Margin Winners</span>
-                    <h2>Biggest margin improvements</h2>
-                </div>
-                <div class="dpad-list">
-                    <t t-foreach="topImprovers" t-as="row" t-key="row.product_id + '_' + row.segment_name">
-                        <div class="dpad-list-row">
-                            <div class="dpad-list-row__info">
-                                <span class="dpad-list-row__name"><t t-esc="row.product_name"/></span>
-                                <span class="dpad-list-row__seg" t-if="row.segment_name">
-                                    <i class="fa fa-tag me-1"/><t t-esc="row.segment_name"/>
-                                </span>
+                                <!-- Drill-down: product lines for this run -->
+                                <t t-if="state.expandedRunId === run.id and run.lines and run.lines.length">
+                                    <div style="margin-top:12px; border-top:1px solid #f0f0f0; padding-top:12px;">
+                                        <div style="font-size:12px; font-weight:700; color:#374151; margin-bottom:8px;">
+                                            <i class="fa fa-list me-1"/>Product Details
+                                        </div>
+                                        <div class="dpad-table-wrap" style="max-height:320px; overflow-y:auto;">
+                                            <table class="dpad-table" style="font-size:12px;">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Product</th>
+                                                        <th>Segment</th>
+                                                        <th class="dpad-th-right">Old Price</th>
+                                                        <th class="dpad-th-right">AI Price</th>
+                                                        <th class="dpad-th-center">Decision</th>
+                                                        <th class="dpad-th-right">Margin Before</th>
+                                                        <th class="dpad-th-right">Margin After</th>
+                                                        <th>Reason</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <t t-foreach="run.lines" t-as="line" t-key="line_index">
+                                                        <tr>
+                                                            <td class="dpad-td-product"><t t-esc="line.product_name"/></td>
+                                                            <td>
+                                                                <span style="background:#f0f4ff; color:#3730a3; border-radius:6px; padding:2px 6px; font-size:10px; font-weight:600; border:1px solid #dde3ff;">
+                                                                    <t t-esc="line.segment || 'Default'"/>
+                                                                </span>
+                                                            </td>
+                                                            <td class="dpad-td-right"><t t-esc="formatMoney(line.old_price)"/></td>
+                                                            <td class="dpad-td-right">
+                                                                <t t-if="line.ai_price">
+                                                                    <span class="dpad-ai-price"><t t-esc="formatMoney(line.ai_price)"/></span>
+                                                                </t>
+                                                                <t t-else=""><span class="dpad-td-muted">—</span></t>
+                                                            </td>
+                                                            <td class="dpad-td-center">
+                                                                <span t-att-class="decisionClass(line.decision)">
+                                                                    <i t-att-class="decisionIcon(line.decision) + ' me-1'"/>
+                                                                    <t t-esc="line.decision"/>
+                                                                </span>
+                                                            </td>
+                                                            <td class="dpad-td-right">
+                                                                <span t-att-class="marginClass(line.margin_before)">
+                                                                    <t t-esc="formatNumber(line.margin_before)"/>%
+                                                                </span>
+                                                            </td>
+                                                            <td class="dpad-td-right">
+                                                                <span t-att-class="marginClass(line.margin_after)">
+                                                                    <t t-esc="formatNumber(line.margin_after)"/>%
+                                                                </span>
+                                                            </td>
+                                                            <td style="max-width:180px; color:#6b7280; font-size:11px;">
+                                                                <t t-esc="line.reason || '—'"/>
+                                                            </td>
+                                                        </tr>
+                                                    </t>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </t>
+
                             </div>
-                            <div class="dpad-list-row__margin">
-                                <span class="dpad-neutral"><t t-esc="formatNumber(row.margin_before)"/>%</span>
-                                <i class="fa fa-arrow-right mx-2" style="font-size:10px; color:#9ba8bd;"/>
-                                <span class="dpad-positive"><t t-esc="formatNumber(row.margin_after)"/>%</span>
-                            </div>
-                            <div class="dpad-positive dpad-list-row__delta">
-                                +<t t-esc="formatNumber(row.margin_after - row.margin_before)"/>%
-                            </div>
-                        </div>
-                    </t>
-                </div>
+                        </t>
+                    </div>
+                </t>
             </div>
 
-            <!-- At Risk Products -->
-            <div class="dpad-panel dpad-risk-panel" t-if="atRisk.length">
-                <div class="dpad-panel__head">
-                    <span class="dpad-kicker">⚠ Attention Needed</span>
-                    <h2>Low margin after AI</h2>
-                </div>
-                <div class="dpad-list">
-                    <t t-foreach="atRisk" t-as="row" t-key="row.product_id + '_' + row.segment_name">
-                        <div class="dpad-list-row">
-                            <div class="dpad-list-row__info">
-                                <span class="dpad-list-row__name"><t t-esc="row.product_name"/></span>
-                                <span class="dpad-list-row__seg" t-if="row.segment_name">
-                                    <i class="fa fa-tag me-1"/><t t-esc="row.segment_name"/>
-                                </span>
+            <!-- ═══════════════════ TAB: ALERTS ═══════════════════ -->
+            <div t-if="state.activeTab === 'alerts'" class="dpad-tab-content">
+                <t t-if="totalAlerts === 0">
+                    <div class="dpad-empty">
+                        <i class="fa fa-check-circle me-2" style="color:#2e7d32;"/>
+                        All clear! No alerts at this time.
+                    </div>
+                </t>
+                <t t-else="">
+                    <div class="dpad-alerts-grid">
+
+                        <div class="dpad-alert-panel dpad-alert-panel--red">
+                            <div class="dpad-alert-panel__header">
+                                <div class="dpad-alert-panel__icon"><i class="fa fa-minus-circle"/></div>
+                                <div>
+                                    <div class="dpad-alert-panel__title">Negative Margin</div>
+                                    <div class="dpad-alert-panel__count">
+                                        <t t-esc="(alerts.negative_margin || []).length"/>
+                                        product(s) — cost exceeds price
+                                    </div>
+                                </div>
                             </div>
-                            <div class="dpad-list-row__margin">
-                                <span class="dpad-neutral"><t t-esc="formatNumber(row.margin_before)"/>%</span>
-                                <i class="fa fa-arrow-right mx-2" style="font-size:10px; color:#9ba8bd;"/>
-                                <span class="dpad-negative"><t t-esc="formatNumber(row.margin_after)"/>%</span>
-                            </div>
-                            <div class="dpad-negative dpad-list-row__delta">
-                                <t t-esc="formatNumber(row.margin_after)"/>% margin
-                            </div>
+                            <t t-if="(alerts.negative_margin || []).length === 0">
+                                <div class="dpad-alert-panel__empty">None — all clear</div>
+                            </t>
+                            <ul t-else="" class="dpad-alert-panel__list">
+                                <t t-foreach="alerts.negative_margin" t-as="name" t-key="name">
+                                    <li><i class="fa fa-exclamation-circle me-1" style="color:#c62828;"/>
+                                        <t t-esc="name"/></li>
+                                </t>
+                            </ul>
                         </div>
-                    </t>
-                </div>
+
+                        <div class="dpad-alert-panel dpad-alert-panel--red">
+                            <div class="dpad-alert-panel__header">
+                                <div class="dpad-alert-panel__icon"><i class="fa fa-ban"/></div>
+                                <div>
+                                    <div class="dpad-alert-panel__title">Out of Stock</div>
+                                    <div class="dpad-alert-panel__count">
+                                        <t t-esc="(alerts.out_of_stock || []).length"/>
+                                        product(s) — zero inventory
+                                    </div>
+                                </div>
+                            </div>
+                            <t t-if="(alerts.out_of_stock || []).length === 0">
+                                <div class="dpad-alert-panel__empty">None — all clear</div>
+                            </t>
+                            <ul t-else="" class="dpad-alert-panel__list">
+                                <t t-foreach="alerts.out_of_stock" t-as="name" t-key="name">
+                                    <li><i class="fa fa-ban me-1" style="color:#c62828;"/>
+                                        <t t-esc="name"/></li>
+                                </t>
+                            </ul>
+                        </div>
+
+                        <div class="dpad-alert-panel dpad-alert-panel--blue">
+                            <div class="dpad-alert-panel__header">
+                                <div class="dpad-alert-panel__icon"><i class="fa fa-archive"/></div>
+                                <div>
+                                    <div class="dpad-alert-panel__title">Overstock</div>
+                                    <div class="dpad-alert-panel__count">
+                                        <t t-esc="(alerts.overstock || []).length"/>
+                                        product(s) — excess inventory
+                                    </div>
+                                </div>
+                            </div>
+                            <t t-if="(alerts.overstock || []).length === 0">
+                                <div class="dpad-alert-panel__empty">None — all clear</div>
+                            </t>
+                            <ul t-else="" class="dpad-alert-panel__list">
+                                <t t-foreach="alerts.overstock" t-as="name" t-key="name">
+                                    <li><i class="fa fa-archive me-1" style="color:#1565c0;"/>
+                                        <t t-esc="name"/></li>
+                                </t>
+                            </ul>
+                        </div>
+
+                    </div>
+                </t>
             </div>
 
-        </div>
-
+        </t>
     </t>
 </div>
 </t>

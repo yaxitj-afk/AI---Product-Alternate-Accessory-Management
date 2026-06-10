@@ -41,14 +41,13 @@ class DynamicPricingLogLine(models.Model):
     dp_old_price = fields.Float(string='Current Price', readonly=True)
     dp_ai_suggested_price = fields.Float(string='AI Suggested Price', readonly=True)
     dp_decision = fields.Selection([
-        ('increase', 'Increase'),
+        ('increase', 'Increase'),   
         ('decrease', 'Decrease'),
         ('hold', 'Hold'),
         ('skip', 'Skip'),
     ], string='Decision', readonly=True)
     dp_margin_before = fields.Float(string='Margin Before (%)', readonly=True)
     dp_margin_after = fields.Float(string='Margin After (%)', readonly=True)
-    dp_reason = fields.Char(string='AI Reason', readonly=True)
     dp_status = fields.Selection([
         ('success', 'Success'),
         ('skipped', 'Skipped'),

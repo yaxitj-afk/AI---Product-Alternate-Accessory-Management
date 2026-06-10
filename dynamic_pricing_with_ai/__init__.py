@@ -1,5 +1,4 @@
 from . import models
-from . import controller
 
 
 def _post_init_generate_dynamic_price_card(env):
@@ -11,7 +10,7 @@ def _post_init_generate_dynamic_price_card(env):
     if not existing_card:
         card_obj.create({
             'vraja_common_card_name': 'Dynamic Pricing with AI',
-            'vraja_common_card_description': 'AI-powered dynamic pricing engine — auto-adjusts selling price, discount & margin',
+            'vraja_common_card_description': 'AI-powered pricing engine — analyses sales, stock & competitor data to auto-suggest prices per segment and apply them to Odoo pricelists.',
             'vraja_common_card_active': True,
             'vraja_common_store': 'dynamic_pricing',
         })
