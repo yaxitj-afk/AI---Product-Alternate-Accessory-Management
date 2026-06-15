@@ -14,10 +14,8 @@ def _post_init_generate_product_card(env):
             'vraja_common_store': 'product_alt_acc',
         })
 
+
 def _uninstall_product_alt_acc_ai(env):
-    card_obj = env['vraja.ai.card'].sudo()
+    env['vraja.ai.card'].sudo().search([('vraja_common_card_name', '=', 'Product Alternate & Accessory')]).unlink()
 
-    cards = card_obj.search([('vraja_common_card_name', '=', 'Product Alternate & Accessory')], limit=1)
-
-    if cards:
-        cards.unlink()
+    env['vraja.ai.log'].sudo().search([('vraja_common_log_store', '=', 'product_alt_acc')]).unlink()

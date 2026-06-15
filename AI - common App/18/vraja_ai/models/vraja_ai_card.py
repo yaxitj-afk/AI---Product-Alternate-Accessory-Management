@@ -29,6 +29,7 @@ class VrajaAICard(models.Model):
         return {
             'type': 'ir.actions.client',
             'tag': 'vraja_ai_dashboard_template',
+            # 'name': 'AI Review Dashboard',
             'target': 'current',
             'params': {
                 'card_id': self.id,

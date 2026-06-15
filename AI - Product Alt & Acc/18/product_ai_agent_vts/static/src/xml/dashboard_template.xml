@@ -6,7 +6,7 @@
        t-inherit-mode="extension">
 
         <xpath expr="//div[@id='dashboard_template_common_app_vts']" position="inside">
-            <div t-if="state.store === 'product_alt_acc'" style="height:100vh; overflow-y:auto; padding-bottom:100px;">
+            <div t-if="state.store === 'product_alt_acc'" style="height:calc(100vh - 100px); overflow-y:auto;">
                  <div t-if="!state.ready"
                       class="d-flex justify-content-center align-items-center"
                       style="height:100vh;">
@@ -15,8 +15,8 @@
                         <div>Loading dashboard...</div>
                     </div>
                 </div>
+                <h1 class="mb-4">AI Dashboard — Product Alternate &amp; Accessory</h1>
                 <div t-if="state.ready">
-                    <h1 class="mb-4">AI Dashboard — Product Alternate &amp; Accessory</h1>
 
                     <!-- Global message -->
                     <div t-if="state.message" t-attf-class="alert alert-{{ state.messageType }} mb-3">

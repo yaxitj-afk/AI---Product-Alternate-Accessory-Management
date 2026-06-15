@@ -2,6 +2,7 @@
 from odoo import models, api, fields
 import json
 import os
+import csv
 import requests
 import logging
 import base64
@@ -10,7 +11,7 @@ import xlsxwriter
 import datetime
 import openpyxl
 from odoo.exceptions import UserError
-from io import BytesIO
+from io import BytesIO, StringIO
 
 _logger = logging.getLogger(__name__)
 
@@ -108,26 +109,26 @@ class VrajaAICard(models.Model):
     @api.model
     def _default_product_ai_instruction(self):
         return """
-        You are a product catalog analyst for an Odoo ERP system.
+    You are a product catalog analyst for an Odoo ERP system.
 
-        HARD RULES — NEVER VIOLATE:
-        1. Only use Product IDs and Names that exist exactly in Sheet 2
-        2. Never suggest a product as its own alternative or accessory
-        3. Accessory price MUST be strictly less than main product price — no exceptions
-        4. Every product in Sheet 1 must appear in output — empty array if no match
-        5. Return valid JSON only — no markdown, no text outside JSON
-        6. Suggest only what there are asking for, if there are asking for both alternate and accessories than give both else as per the requirement.
-            """.strip()
+    HARD RULES — NEVER VIOLATE:
+    1. Only use Product IDs and Names that exist exactly in the Full Catalog (Sheet 2 / Full Catalog section)
+    2. Never suggest a product as its own alternative or accessory
+    3. Accessory price MUST be strictly less than main product price — no exceptions
+    4. Every product in the Selected Products list (Sheet 1 / Selected Products section) must appear in output — empty array if no match
+    5. Return valid JSON array only — no markdown, no reasoning, no explanation, no text before or after the JSON array. Start your response with [ and end with ].
+    6. Suggest only what is asked for — if both alternatives and accessories are requested, provide both; otherwise follow the requirement
+        """.strip()
 
     @api.model
     def _default_product_ai_prompt(self):
         return """
-        Analyse the attached Excel file. For each product in Sheet 1, find the best alternatives and accessories from Sheet 2.
+        Analyse the product data provided (either as an attached Excel file or as CSV sections below). For each product in the Selected Products list (Sheet 1), find the best alternatives and accessories from the Full Catalog (Sheet 2).
 
         SHEET GUIDE:
-        - Sheet 1 = Products that need alternatives and accessories
-        - Sheet 2 = Full product catalog — pick ALL suggestions from here only
-        - Sheet 3 = Sales history — shows which products customers bought together (use as strongest accessory signal)
+        - Selected Products (Sheet 1 / ===== Selected Products =====) = Products that need alternatives and accessories
+        - Full Catalog (Sheet 2 / ===== Full Catalog =====) = Complete product catalog — pick ALL suggestions from here only
+        - Sales History (Sheet 3 / ===== Sales History ... =====) = Shows which products customers bought together (use as strongest accessory signal)
 
         STEP 1 — FIND ALTERNATIVES
         An alternative is a product a customer would buy INSTEAD of the main product.
@@ -176,6 +177,7 @@ class VrajaAICard(models.Model):
                 ]
             }
         ]
+        CRITICAL: Output the JSON array only. Do not explain your reasoning. Do not add any text before or after the JSON. Your entire response must start with [ and end with ].
             """.strip()
 
     # ----------------------------------------------------------------------------------------------------------
@@ -207,9 +209,13 @@ class VrajaAICard(models.Model):
 
     def _build_product_ai_prompt(self):
         """Builds the user prompt with configuration context only.
-        Product data is already in the Excel file sent as attachment.
+        For OpenAI: product data is in the attached Excel file.
+        For Claude/Gemini: product data will be appended as CSV text by _call_product_ai_api.
         """
         self.ensure_one()
+
+        config = self.env['vraja.ai.config'].sudo().search([], limit=1)
+        provider = (config.ai_provider or 'openai') if config else 'openai'
 
         sales_note = (
             f'Sheet 3 (Sales History) IS present — last '
@@ -218,6 +224,15 @@ class VrajaAICard(models.Model):
             'Sheet 3 (Sales History) is NOT present.'
         )
 
+        if provider == 'openai':
+            data_note = 'Product data is provided as an attached Excel file (Sheet 1, 2, 3).'
+        else:
+            data_note = (
+                'Product data is provided as CSV text below, '
+                'with each sheet separated by a header line (e.g. ===== Selected Products =====). '
+                'Sheet 1 = Selected Products, Sheet 2 = Full Catalog, Sheet 3 = Sales History.'
+            )
+
         return (
             f"{self.product_ai_default_prompt}\n\n"
             f"Configuration:\n"
@@ -225,7 +240,8 @@ class VrajaAICard(models.Model):
             f"- Price tolerance: {self.product_ai_price_tolerance}%\n"
             f"- Max suggestions per product: {self.product_ai_max_suggestions}\n"
             f"- Business context: {self.product_ai_business_info or 'None'}\n"
-            f"- {sales_note}"
+            f"- {sales_note}\n"
+            f"- {data_note}"
         )
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -390,75 +406,180 @@ class VrajaAICard(models.Model):
 
         return file_id
 
-    def _call_product_ai_api(self, system_prompt, user_prompt):
-        """Upload Excel and call OpenAI Responses API."""
-        config = self.env['vraja.ai.config'].sudo().search([('id', '=', 1)], limit=1)
+    # --------------------------------------------------------------------------------------------------------------
 
-        if not config or not config.openai_api_key:
-            error_msg = 'OpenAI API key is not configured. Please set it in Configuration.'
-            raise UserError(error_msg)
+    def _convert_product_excel_to_csv_text(self):
+        """Convert Excel attachment into CSV formatted text for Claude and Gemini."""
+        self.ensure_one()
 
         if not self.product_ai_excel_attachment_id:
-            error_msg = 'No data file found. Please save settings first to generate the Excel file.'
-            raise UserError(error_msg)
+            raise UserError('No data file found. Please save settings first to generate the Excel file.')
 
-        file_id = self._upload_excel_to_openai(self.product_ai_excel_attachment_id,config.openai_api_key,)
+        excel_bytes = base64.b64decode(self.product_ai_excel_attachment_id.datas)
+        workbook = openpyxl.load_workbook(BytesIO(excel_bytes), data_only=True)
 
-        try:
+        output_parts = []
+
+        for sheet_name in workbook.sheetnames:
+            worksheet = workbook[sheet_name]
+            output_parts.append(f"\n===== {sheet_name} =====")
+
+            csv_buffer = StringIO()
+            writer = csv.writer(csv_buffer)
+
+            for row in worksheet.iter_rows(values_only=True):
+                writer.writerow(['' if value is None else str(value) for value in row])
+
+            output_parts.append(csv_buffer.getvalue())
+
+        return "\n".join(output_parts)
+
+    def _call_product_ai_api(self, system_prompt, user_prompt):
+        """
+        Sends a single AI request based on the configured provider.
+
+        OpenAI : Responses API (/v1/responses) — Excel delivered via file_id attachment.
+        Claude : Messages API (/v1/messages)   — Excel converted to CSV text and embedded in prompt.
+        Gemini : generateContent REST API      — Excel converted to CSV text and embedded in prompt.
+
+        Returns (raw_text_response, total_tokens_used).
+        Raises UserError on any failure.
+        """
+        config = self.env['vraja.ai.config'].sudo().search([], limit=1)
+        if not config:
+            raise UserError('AI configuration not found. '
+                            'Go to AI Dashboard ▸ Configuration and set up your AI provider.')
+
+        provider = config.ai_provider or 'openai'
+
+        # Validate provider config
+        if provider == 'claude' and not ((config.claude_api_key or '').strip() and config.claude_llm_model):
+            raise UserError('Claude API key or model is not configured.')
+        elif provider == 'gemini' and not ((config.gemini_api_key or '').strip() and config.gemini_llm_model):
+            raise UserError('Gemini API key or model is not configured.')
+        elif provider == 'openai' and not ((config.openai_api_key or '').strip() and config.llm_model):
+            raise UserError('OpenAI API key or model is not configured.')
+
+        if not self.product_ai_excel_attachment_id:
+            raise UserError('No data file found. Please save settings first to generate the Excel file.')
+
+        file_id = None
+
+        # ── Build payload and request params per provider ─────────────────────
+        if provider == 'openai':
+            file_id = self._upload_excel_to_openai(self.product_ai_excel_attachment_id, config.openai_api_key)
+            req_url = 'https://api.openai.com/v1/responses'
+            req_headers = {'Authorization': f'Bearer {config.openai_api_key}', 'Content-Type': 'application/json', }
             payload = {
-                "model": config.llm_model,
-                "input": [
-                    {"role": "system", "content": system_prompt},
+                'model': config.llm_model,
+                'input': [
+                    {'role': 'system', 'content': system_prompt},
                     {
-                        "role": "user",
-                        "content": [
-                            {"type": "input_text", "text": user_prompt},
-                            {"type": "input_file", "file_id": file_id},
+                        'role': 'user',
+                        'content': [
+                            {'type': 'input_text', 'text': user_prompt},
+                            {'type': 'input_file', 'file_id': file_id},
                         ],
                     },
                 ],
             }
 
-            response = requests.post("https://api.openai.com/v1/responses", json=payload,
-                                     headers={
-                                         "Authorization": f"Bearer {config.openai_api_key}",
-                                         "Content-Type": "application/json",
-                                     }, timeout=120, )
+        elif provider == 'claude':
+            # Convert Excel to CSV text and embed directly in the prompt
+            csv_text = self._convert_product_excel_to_csv_text()
+            combined_prompt = f"{user_prompt}\n\nPRODUCT DATA (from Excel, converted to CSV):\n{csv_text}"
+            llm_model = config.claude_llm_model or 'claude-sonnet-4-6'
+            req_url = 'https://api.anthropic.com/v1/messages'
+            req_headers = {
+                'x-api-key': (config.claude_api_key or '').strip(),
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json',
+            }
+            payload = {
+                'model': llm_model,
+                'max_tokens': config.claude_max_tokens or 8192,
+                'system': system_prompt,
+                'messages': [{'role': 'user', 'content': combined_prompt}],
+            }
 
-            response.raise_for_status()
-            body = response.json()
-            _logger.info("OpenAI usage: %s", body.get("usage"))
-            total_tokens = body.get("usage", {}).get("total_tokens", 0)
-            return body["output"][0]["content"][0]["text"], total_tokens
+        elif provider == 'gemini':
+            # Convert Excel to CSV text and embed directly in the prompt
+            csv_text = self._convert_product_excel_to_csv_text()
+            combined_prompt = f"{user_prompt}\n\nPRODUCT DATA (from Excel, converted to CSV):\n{csv_text}"
+            llm_model = config.gemini_llm_model or 'gemini-flash-latest'
+            gemini_api_key = (config.gemini_api_key or '').strip()
+            req_url = (
+                f'https://generativelanguage.googleapis.com/v1beta/models/'
+                f'{llm_model}:generateContent?key={gemini_api_key}'
+            )
+            req_headers = {'Content-Type': 'application/json'}
+            payload = {
+                'system_instruction': {'parts': [{'text': system_prompt}]},
+                'contents': [{'parts': [{'text': combined_prompt}]}],
+                'generationConfig': {'responseMimeType': 'application/json'},
+            }
 
+        # ── Single try/except for all providers ───────────────────────────────
+        try:
+            resp = requests.post(req_url, json=payload, headers=req_headers, timeout=300)
+            resp.raise_for_status()
+            body = resp.json()
+
+            if provider == 'openai':
+                _logger.info('Product AI [OpenAI] usage: %s', body.get('usage'))
+                tokens = body.get('usage', {}).get('total_tokens', 0)
+                text = body['output'][0]['content'][0]['text']
+
+
+            elif provider == 'claude':
+                usage = body.get('usage', {})
+                tokens = usage.get('input_tokens', 0) + usage.get('output_tokens', 0)
+                _logger.info('Product AI [Claude] tokens — input: %s, output: %s',
+                             usage.get('input_tokens', 0), usage.get('output_tokens', 0))
+                _logger.info('Product AI [Claude] stop_reason: %s', body.get('stop_reason'))  # ADD THIS
+                text_blocks = [b for b in body.get('content', []) if b.get('type') == 'text']
+                if not text_blocks:
+                    raise UserError(
+                        f"Claude returned no 'text' block. "
+                        f"stop_reason={body.get('stop_reason')}, "
+                        f"content_types={[b.get('type') for b in body.get('content', [])]}"
+                    )
+
+                text = text_blocks[0]['text'].strip()
+                _logger.info('Product AI [Claud] raw response (first 500): %s', text[:500])
+
+            elif provider == 'gemini':
+                tokens = body.get('usageMetadata', {}).get('totalTokenCount', 0)
+                _logger.info('Product AI [Gemini] totalTokenCount: %s', tokens)
+                candidates = body.get('candidates', [])
+                if not candidates:
+                    raise UserError(f'Gemini returned no candidates. Full response: {body}')
+                parts = candidates[0].get('content', {}).get('parts', [])
+                if not parts or 'text' not in parts[0]:
+                    raise UserError(
+                        f'Gemini returned unexpected content structure: {candidates[0]}'
+                    )
+                text = parts[0]['text'].strip()
+
+            return text, tokens
 
         except requests.exceptions.Timeout:
-            error_msg = 'Request timed out. OpenAI API did not respond in time.'
-            raise UserError(error_msg)
-
+            raise UserError(f'{provider} API timed out. Please try again.')
         except requests.exceptions.ConnectionError:
-            error_msg = 'Connection error. Please check your internet connection.'
-            raise UserError(error_msg)
-
-
+            raise UserError(f'Cannot connect to {provider} API. Check your internet connection.')
         except requests.exceptions.RequestException as e:
-            error_msg = f'API Request Error: {str(e)}'
-            raise UserError(error_msg)
-
-
+            raise UserError(f'{provider} API request failed: {e}')
         except (KeyError, IndexError, TypeError) as e:
-            error_msg = f'Unexpected response format from OpenAI: {str(e)}'
-            raise UserError(error_msg)
-
+            raise UserError(f'Unexpected response format from {provider}: {e}')
         finally:
-            try:
-                requests.delete(
-                    f"https://api.openai.com/v1/files/{file_id}",
-                    headers={"Authorization": f"Bearer {config.openai_api_key}"},
-                    timeout=10,
-                )
-            except Exception as e:
-                _logger.info("OpenAI file cleanup error: %s", e)
+            # OpenAI file cleanup — always runs even on error
+            if file_id and provider == 'openai':
+                try:
+                    requests.delete(f'https://api.openai.com/v1/files/{file_id}',
+                                    headers={'Authorization': f'Bearer {config.openai_api_key}'},
+                                    timeout=60, )
+                except Exception as e:
+                    _logger.warning('Product AI: OpenAI file cleanup error: %s', e)
 
     def _parse_product_ai_response(self, raw_text):
         """Parses AI JSON response into a dict keyed by product_id.
@@ -469,7 +590,12 @@ class VrajaAICard(models.Model):
         if text.startswith('```'):
             text = text.split('\n', 1)[-1]
             if text.endswith('```'):
-                text = text.rsplit('```', 1)[0]
+                text = text.rsplit('```', 1)[0].strip()
+
+        start_idx = text.find('[')
+        end_idx = text.rfind(']')
+        if start_idx != -1 and end_idx != -1:
+            text = text[start_idx:end_idx + 1]
 
         try:
             data = json.loads(text)

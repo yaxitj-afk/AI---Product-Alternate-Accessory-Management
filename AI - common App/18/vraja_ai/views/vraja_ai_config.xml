@@ -12,10 +12,72 @@
         <field name="arch" type="xml">
             <form string="AI Configuration" create="False">
                 <sheet>
-                    <group>
-                        <field name="openai_api_key"/>
-                        <field name="llm_model"/>
+
+                    <!-- ══════════════════════════════════════════════════
+                         SECTION 1: AI Provider Selector (Radio Buttons)
+                         Changing this radio immediately shows / hides the
+                         relevant credential block below via 'invisible'.
+                    ══════════════════════════════════════════════════ -->
+                    <group string="AI Provider">
+                        <field
+                            name="ai_provider"
+                            widget="radio"
+                            options="{'horizontal': true}"
+                            nolabel="1"
+                        />
                     </group>
+
+                    <separator/>
+
+                    <!-- ══════════════════════════════════════════════════
+                         SECTION 2: OpenAI Configuration
+                         Visible only when ai_provider = 'openai'.
+                    ══════════════════════════════════════════════════ -->
+                    <group string="OpenAI Settings"
+                           invisible="ai_provider != 'openai'">
+                        <field name="openai_api_key"
+                               password="True"
+                               placeholder="sk-…"
+                               help="Your OpenAI API key. Starts with 'sk-'."/>
+                        <field name="llm_model"
+                               string="OpenAI Model"/>
+                    </group>
+
+                    <!-- ══════════════════════════════════════════════════
+                         SECTION 3: Claude (Anthropic) Configuration
+                         Visible only when ai_provider = 'claude'.
+
+                         Claude Messages API:
+                           Endpoint : POST https://api.anthropic.com/v1/messages
+                           Auth     : x-api-key header  (NOT Bearer token)
+                           Version  : anthropic-version: 2023-06-01
+                         Ref: https://docs.anthropic.com/en/api/overview
+                    ══════════════════════════════════════════════════ -->
+                    <group string="Claude (Anthropic) Settings"
+                           invisible="ai_provider != 'claude'">
+                        <field name="claude_api_key"
+                               password="True"
+                               placeholder="sk-ant-…"
+                               help="Your Anthropic API key. Obtain from&#10;https://platform.claude.com/settings/keys"/>
+                        <field name="claude_llm_model"
+                               string="Claude Model"/>
+                        <field name="claude_max_tokens"/>
+                    </group>
+
+                    <!-- ══════════════════════════════════════════════════
+                         SECTION 4: Google Gemini Configuration
+                         Visible only when ai_provider = 'gemini'.
+                    ══════════════════════════════════════════════════ -->
+                    <group string="Google Gemini Settings"
+                           invisible="ai_provider != 'gemini'">
+                        <field name="gemini_api_key"
+                               password="True"
+                               placeholder="AIzaSy..."
+                               help="Your Google Gemini API key."/>
+                        <field name="gemini_llm_model"
+                               string="Gemini Model"/>
+                    </group>
+
                 </sheet>
             </form>
         </field>
@@ -37,3 +99,4 @@
               sequence="10"/>
 
 </odoo>
+

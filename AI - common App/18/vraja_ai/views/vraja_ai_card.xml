@@ -66,7 +66,6 @@
                                         style="width: 33.33%; text-align: center;">
                                     <span class="fa fa-play-circle me-1"/>Active
                                 </button>
-
                                 <!-- Inactive -->
                                 <button t-if="!record.vraja_common_card_active.raw_value"
                                         type="object"
