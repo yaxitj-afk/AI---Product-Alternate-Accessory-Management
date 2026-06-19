@@ -10,15 +10,17 @@
                   delete="false"
                   decoration-danger="error_message"
                   decoration-success="state == 'done'">
-                <field name="name"/>
-                <field name="total_batches" string="Total Batches"/>
-                <field name="products_count" string="Products"/>
+                <field name="name" string="Batch" width="300px"/>
+                <field name="total_batches" string="Total Batches" width="120px"/>
+                <field name="products_count" string="Products" width="100px"/>
                 <field name="state"
                        decoration-info="state == 'draft'"
                        decoration-warning="state == 'running'"
                        decoration-success="state == 'done'"
-                       widget="badge"/>
-                <field name="error_message" optional="show"/>
+                       widget="badge"
+                       optional="show"
+                       width="120px"/>
+                <field name="error_message" optional="show" width="300px"/>
                 <button string="Run Manually"
                         name="action_run_batch_manually"
                         type="object"
@@ -161,21 +163,21 @@
                     <div style="border:1px solid #e5e7eb; border-radius:14px; overflow:hidden;
                                 box-shadow:0 2px 12px rgba(0,0,0,0.06);">
                         <notebook>
-                            <page string="CSV Payload (OpenAI Input)" name="csv_payload">
+                            <page string="CSV Payload" name="csv_payload">
                                 <div class="p-2">
                                     <div class="mb-2 d-flex align-items-center gap-2"
                                          style="padding:10px 12px; background:#f0f7ff;
                                                 border-radius:8px; border-left:3px solid #3b82f6;">
                                         <i class="fa fa-info-circle" style="color:#3b82f6;"/>
                                         <span style="font-size:12px; color:#1e40af;">
-                                            Raw CSV data sent to OpenAI for AI pricing analysis.
+                                            Raw CSV data sent to provider for AI pricing analysis.
                                         </span>
                                     </div>
                                     <field name="csv_rows" nolabel="1" readonly="1"
                                            widget="ace" options="{'mode': 'text'}"/>
                                 </div>
                             </page>
-                            <page string="JSON Response (OpenAI Output)" name="json_response"
+                            <page string="JSON Response" name="json_response"
                                   invisible="not result_json">
                                 <div class="p-2">
                                     <div class="mb-2 d-flex align-items-center gap-2"
@@ -183,7 +185,7 @@
                                                 border-radius:8px; border-left:3px solid #22c55e;">
                                         <i class="fa fa-check-circle" style="color:#16a34a;"/>
                                         <span style="font-size:12px; color:#166534;">
-                                            AI-generated pricing recommendations returned by OpenAI.
+                                            AI-generated pricing recommendations returned by provider.
                                         </span>
                                     </div>
                                     <field name="result_json" nolabel="1" readonly="1"

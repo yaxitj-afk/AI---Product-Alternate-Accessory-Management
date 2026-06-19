@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_ai_provider_config_user,ai.provider.config.user,model_ai_provider_config,base.group_user,1,1,1,0
+access_ai_email_generate_wizard_user,ai.email.generate.wizard.user,model_ai_email_generate_wizard,base.group_user,1,1,1,1
+access_ai_email_tmpl_log,ai.email.tmpl.log,model_ai_email_tmpl_log,base.group_user,1,1,1,1

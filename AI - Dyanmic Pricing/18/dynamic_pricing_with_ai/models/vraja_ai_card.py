@@ -197,14 +197,14 @@ class VrajaAICard(models.Model):
     
         STEP A3 — SEGMENT-BASED UNDERCUT (only rule that applies in PATH A):
         - Apply undercut % based on segment_name:
-           retailer    → undercut 1.0%  → multiplier = 0.990
-            b2c         → undercut 1.0%  → multiplier = 0.990
-            walkin      → undercut 1.0%  → multiplier = 0.990
-            b2b         → undercut 0.5%  → multiplier = 0.995
-            wholesaler  → undercut 0.3%  → multiplier = 0.997
-            distributor → undercut 0.3%  → multiplier = 0.997
-            vip         → undercut 0.2%  → multiplier = 0.998
-            default (any other segment) → undercut 0.5% → multiplier = 0.995
+            b2b         → undercut 1.0%   
+            wholesaler  → undercut 1.5%   
+            distributor → undercut 1.5%   
+            retailer    → undercut 0.5%   
+            b2c         → undercut 0.3%   
+            walkin      → undercut 0.3%   
+            vip         → undercut 0.5%   
+            default     → undercut 0.2%   
 
         - target_price = competitor_price (converted) × segment_multiplier
     
@@ -1197,7 +1197,7 @@ class VrajaAICard(models.Model):
         log_vals = {
             'vraja_common_log_store': 'dynamic_pricing',
             'dp_log_message': message,
-            'dp_total_products': len(log_lines) if log_lines else 0,
+            'dp_total_products':len(set(line['dp_product_id'] for line in log_lines)) if log_lines else 0,
             'dp_total_tokens': total_tokens,
             'dp_applied': applied,
             'dp_pricelists_updated': pricelists_updated,
@@ -1379,47 +1379,6 @@ class VrajaAICard(models.Model):
     # ANALYSIS DASHBOARD DATA HELPERS
     # =========================================================================
 
-
-
-    def _dp_get_run_history_with_lines(self):
-        """
-        Returns the last 10 Dynamic Pricing log records with full line detail
-        for the run history drill-down in the analysis dashboard.
-        """
-        self.ensure_one()
-        logs = self.env['vraja.ai.log'].sudo().search([
-            ('vraja_common_log_store', '=', 'dynamic_pricing'),
-        ], order='create_date desc', limit=10)
-
-        history = []
-        for log in logs:
-            lines = []
-            for line in log.line_ids:
-                lines.append({
-                    'product_name': line.dp_product_name or '',
-                    'segment': line.dp_segment_name or '',
-                    'old_price': round(line.dp_old_price or 0.0, 2),
-                    'ai_price': round(line.dp_ai_suggested_price or 0.0, 2),
-                    'decision': line.dp_decision or 'hold',
-                    'margin_before': round(line.dp_margin_before or 0.0, 2),
-                    'margin_after': round(line.dp_margin_after or 0.0, 2),
-                })
-            history.append({
-                'id': log.id,
-                'date': str(log.create_date)[:16] if log.create_date else '',
-                'status': log.status,
-                'total_products': log.dp_total_products or 0,
-                'total_tokens': log.dp_total_tokens or 0,
-                'applied': log.dp_applied,
-                'pricelists_updated': log.dp_pricelists_updated or 0,
-                'increase_count': log.dp_increase_count or 0,
-                'decrease_count': log.dp_decrease_count or 0,
-                'hold_count': log.dp_hold_count or 0,
-                'skip_count': log.dp_skip_count or 0,
-                'lines': lines,
-            })
-        return history
-
     @api.model
     def action_get_dp_analysis_dashboard_data(self, card_id):
         """
@@ -1563,7 +1522,6 @@ class VrajaAICard(models.Model):
             'summary': summary,
             'product_rows': product_rows,
             'alerts': alerts,
-            'run_history': card._dp_get_run_history_with_lines(),
             'segment_data': card._dp_get_segment_performance(),
         }
 
@@ -1577,7 +1535,6 @@ class VrajaAICard(models.Model):
             'summary': {},
             'product_rows': [],
             'alerts': {},
-            'run_history': [],
             'segment_data': [],
         }
 

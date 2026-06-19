@@ -17,9 +17,9 @@ export class DynamicPricingAnalysisDashboard extends Component {
             productSearch: "",
             impactSearch: "",
             impactFilter: "all",        // all | increase | decrease | hold | skip
-            expandedRunId: null,        // for drill-down in run history
         });
-
+        this.actionService = useService("action");
+        this.state.activeView = 'card';
         this.requestSeq = 0;
         this.moneyFormatter = null;
         this.numberFormatter = new Intl.NumberFormat(undefined, {maximumFractionDigits: 2});
@@ -34,13 +34,30 @@ export class DynamicPricingAnalysisDashboard extends Component {
         });
     }
 
+    goBack() {
+        this.actionService.doAction({
+            type: 'ir.actions.client',
+            tag: 'dynamic_pricing_dashboard_template',
+            target: 'current',
+        });
+    }
+
+    toggleView() {
+        this.state.activeView = this.state.activeView === 'card' ? 'list' : 'card';
+    }
+
     enableDashboardScroll() {
         const selectors = [".o_content", ".o_action_manager", ".o_view_controller", ".o_action"];
         this._scrollTargets = [];
         selectors.forEach(sel => {
             const el = document.querySelector(sel);
             if (el) {
-                this._scrollTargets.push({el, prevOverflow: el.style.overflowY, prevHeight: el.style.height, prevMinHeight: el.style.minHeight});
+                this._scrollTargets.push({
+                    el,
+                    prevOverflow: el.style.overflowY,
+                    prevHeight: el.style.height,
+                    prevMinHeight: el.style.minHeight
+                });
                 el.style.overflowY = "visible";
                 el.style.height = "auto";
                 el.style.minHeight = "unset";
@@ -80,7 +97,7 @@ export class DynamicPricingAnalysisDashboard extends Component {
             const data = await this.orm.call(
                 "vraja.ai.card",
                 "action_get_dp_analysis_dashboard_data",
-                [this.state.cardId, {}]
+                [this.state.cardId]
             );
             if (requestId === this.requestSeq) {
                 this.state.data = data;
@@ -104,24 +121,40 @@ export class DynamicPricingAnalysisDashboard extends Component {
         }
     }
 
-    setTab(tab) { this.state.activeTab = tab; }
-    setImpactFilter(f) { this.state.impactFilter = f; this.state.impactSearch = ""; }
-    toggleRunExpand(id) {
-        this.state.expandedRunId = this.state.expandedRunId === id ? null : id;
+    setTab(tab) {
+        this.state.activeTab = tab;
+    }
+
+    setImpactFilter(f) {
+        this.state.impactFilter = f;
+        this.state.impactSearch = "";
     }
 
     // ── Data getters ──────────────────────────────────────────────────────────
-    get card()        { return this.state.data.card || {}; }
-    get summary()     { return this.state.data.summary || {}; }
-    get alerts()      { return this.state.data.alerts || {}; }
-    get runHistory()  { return this.state.data.run_history || []; }
-    get segmentData() { return this.state.data.segment_data || []; }
-    get allProductRows() { return this.state.data.product_rows || []; }
+    get card() {
+        return this.state.data.card || {};
+    }
+
+    get summary() {
+        return this.state.data.summary || {};
+    }
+
+    get alerts() {
+        return this.state.data.alerts || {};
+    }
+
+    get segmentData() {
+        return this.state.data.segment_data || [];
+    }
+
+    get allProductRows() {
+        return this.state.data.product_rows || [];
+    }
 
     get totalAlerts() {
         const a = this.alerts;
         return (a.negative_margin?.length || 0) + (a.dead_stock?.length || 0) +
-               (a.out_of_stock?.length || 0) + (a.overstock?.length || 0);
+            (a.out_of_stock?.length || 0) + (a.overstock?.length || 0);
     }
 
     // AI Impact rows — products with actual AI price change (not hold/skip)
@@ -131,8 +164,8 @@ export class DynamicPricingAnalysisDashboard extends Component {
         const f = this.state.impactFilter;
         if (f === "increase") rows = rows.filter(r => r.decision === "increase");
         if (f === "decrease") rows = rows.filter(r => r.decision === "decrease");
-        if (f === "hold")     rows = rows.filter(r => r.decision === "hold");
-        if (f === "skip")     rows = rows.filter(r => r.decision === "skip");
+        if (f === "hold") rows = rows.filter(r => r.decision === "hold");
+        if (f === "skip") rows = rows.filter(r => r.decision === "skip");
         if (q) rows = rows.filter(r =>
             (r.product_name || "").toLowerCase().includes(q) ||
             (r.segment || "").toLowerCase().includes(q)
@@ -163,7 +196,9 @@ export class DynamicPricingAnalysisDashboard extends Component {
         return this.moneyFormatter.format(value || 0);
     }
 
-    formatNumber(value) { return this.numberFormatter.format(value || 0); }
+    formatNumber(value) {
+        return this.numberFormatter.format(value || 0);
+    }
 
     formatPct(value) {
         const v = value || 0;
@@ -172,7 +207,7 @@ export class DynamicPricingAnalysisDashboard extends Component {
 
     // ── CSS helpers ───────────────────────────────────────────────────────────
     marginClass(value) {
-        if (value < 0)  return "dpad-negative";
+        if (value < 0) return "dpad-negative";
         if (value < 15) return "dpad-warning";
         return "dpad-positive";
     }
@@ -186,18 +221,18 @@ export class DynamicPricingAnalysisDashboard extends Component {
     stockBadgeClass(status) {
         return {
             out_of_stock: "dpad-stock-badge dpad-stock-badge--out",
-            low_stock:    "dpad-stock-badge dpad-stock-badge--low",
-            in_stock:     "dpad-stock-badge dpad-stock-badge--in",
-            overstock:    "dpad-stock-badge dpad-stock-badge--over",
+            low_stock: "dpad-stock-badge dpad-stock-badge--low",
+            in_stock: "dpad-stock-badge dpad-stock-badge--in",
+            overstock: "dpad-stock-badge dpad-stock-badge--over",
         }[status] || "dpad-stock-badge";
     }
 
     stockLabel(status) {
         return {
             out_of_stock: "Out of Stock",
-            low_stock:    "Low Stock",
-            in_stock:     "In Stock",
-            overstock:    "Overstock",
+            low_stock: "Low Stock",
+            in_stock: "In Stock",
+            overstock: "Overstock",
         }[status] || status;
     }
 
@@ -209,8 +244,8 @@ export class DynamicPricingAnalysisDashboard extends Component {
         return {
             increase: "fa fa-arrow-up",
             decrease: "fa fa-arrow-down",
-            hold:     "fa fa-minus",
-            skip:     "fa fa-ban",
+            hold: "fa fa-minus",
+            skip: "fa fa-ban",
         }[decision] || "fa fa-minus";
     }
 

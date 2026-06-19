@@ -193,7 +193,8 @@
                                         <strong>Tip — Model Quality Matters:</strong>
                                         For more accurate and consistent pricing suggestions, use a higher-capability
                                         LLM
-                                        (e.g. GPT-4.1, Claude Sonnet, Gemini Flash or any AI model of your choice) Lower models may produce inconsistent results,
+                                        (e.g. GPT-4.1, Claude Sonnet, Gemini Flash or any AI model of your choice) Lower
+                                        models may produce inconsistent results,
                                         especially when competitor URLs are provided and currency conversion is
                                         involved.
                                     </div>
@@ -958,12 +959,19 @@
                                                             </td>
                                                             <td style="padding:11px 16px; font-size:11px; color:#dc2626;">
                                                                 <span t-if="batch.error_message"
-                                                                      style="white-space:normal; word-break:break-word; display:block;">
-                                                                    <i class="fa fa-exclamation-circle me-1"/>
-                                                                    <t t-esc="batch.error_message"/>
+                                                                      t-att-title="batch.error_message"
+                                                                      style="display:inline-flex; align-items:center; gap:5px;
+                                                                             background:#fff5f5; border:1px solid #fca5a5;
+                                                                             border-radius:20px; padding:3px 10px;
+                                                                             font-size:11px; font-weight:600; cursor:help;
+                                                                             max-width:180px; white-space:nowrap;
+                                                                             overflow:hidden; text-overflow:ellipsis;">
+                                                                    <i class="fa fa-exclamation-circle" style="flex-shrink:0;"/>
+                                                                    <span style="overflow:hidden; text-overflow:ellipsis;">
+                                                                        <t t-esc="batch.error_message"/>
+                                                                    </span>
                                                                 </span>
-                                                                <span t-if="!batch.error_message"
-                                                                      style="color:#9ca3af;">—</span>
+                                                                <span t-if="!batch.error_message" style="color:#9ca3af;">—</span>
                                                             </td>
                                                         </tr>
                                                     </t>

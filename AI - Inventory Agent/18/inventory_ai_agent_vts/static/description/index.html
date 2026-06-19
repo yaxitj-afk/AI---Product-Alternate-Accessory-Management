@@ -55,7 +55,7 @@
                     <div style="width:100%; box-sizing:border-box; margin:0 auto 10px auto;">
                         <p
                             style="color:#355486; font-size:16px; line-height:1.65; margin:0; box-sizing:border-box; text-align:justify; width:100%;">
-                            Inventory AI Agent helps inventory and purchase teams find products that need replenishment before they become stockout issues. The module prepares stock, sales, and purchase history in a structured workbook, runs AI analysis through the configured Vraja AI/OpenAI setup, and returns clear RFQ recommendations inside Odoo.
+                            Inventory AI Agent helps inventory and purchase teams find products that need replenishment before they become stockout issues. The module prepares stock, sales, and purchase history in a structured workbook, runs AI analysis through the configured OpenAI, Claude or Gemini setup, and returns clear RFQ recommendations inside Odoo.
                         </p>
                         <p style="color:#355486; font-size:16px; line-height:1.65; margin:0; box-sizing:border-box; text-align:justify; width:100%; "
                             class="mt-3">
@@ -692,8 +692,7 @@
                                     style="color:#123d73; font-size:clamp(13px, 3.4vw, 17px); line-height:1.35; font-weight:900; margin:0 0 14px; box-sizing:border-box;">
                                     <span
                                         style="background-color:#eaf2ff; color:#2563eb; border-radius:999px; display:inline-block; font-size:12px; font-weight:900; padding:6px 11px; margin-right:8px; box-sizing:border-box;">02</span>
-                                    Configure the your API-key and GPT-Model what you want to use from the 'Configuration' Menu.
-                                </p>
+                                    From the Configuration menu, you can set up your AI provider API key and choose the LLM model you want to use, with support for OpenAI (ChatGPT), Anthropic Claude, and Google Gemini.                                </p>
                                 <img src="12.png" class="img img-fluid"
                                     style="border-radius:16px; box-shadow:0 14px 34px rgba(15,23,42,0.10); margin:0; box-sizing:border-box;">
                             </div>
@@ -910,7 +909,7 @@
                                             </h4>
                                             <p
                                                 style="color:#526b96; font-size:13px; line-height:1.6; margin:0; box-sizing:border-box;">
-                                                The module supports multiple OpenAI models including GPT-4.1, GPT-4.1 Mini, GPT-5, GPT-5 Mini, GPT-5.4, and GPT-5.4 Mini. You can select the model that best fits your business needs from the Configuration page.
+                                                The module supports a wide range of the latest AI models from OpenAI, Anthropic Claude, and Google Gemini, allowing you to choose the model that best fits your business requirements.
                                             </p>
                                         </td>
                                     </tr>
@@ -1018,7 +1017,7 @@
                                             </h4>
                                             <p
                                                 style="color:#526b96; font-size:13px; line-height:1.6; margin:0; box-sizing:border-box;">
-                                                Every AI log record shows the Total Tokens Used for that particular run. You can refer to this figure to monitor your API consumption and plan your OpenAI usage accordingly.
+                                                Every AI log record shows the Total Tokens Used for that particular run. You can refer to this figure to monitor your API consumption and plan your provider usage accordingly.
                                             </p>
                                         </td>
                                     </tr>

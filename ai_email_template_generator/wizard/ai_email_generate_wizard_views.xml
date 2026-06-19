@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ai_email_generate_wizard_form" model="ir.ui.view">
+        <field name="name">ai.email.generate.wizard.form</field>
+        <field name="model">ai.email.generate.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Generate Email Template using AI" class="o_ai_generate_wizard">
+
+                <!-- ═══════════════════════════════════════════ -->
+                <!--  HEADER BANNER                              -->
+                <!-- ═══════════════════════════════════════════ -->
+                <div class="o_ai_hero">
+                    <div class="o_ai_hero_left">
+                        <div class="o_ai_hero_icon">
+                            <i class="fa fa-magic"/>
+                        </div>
+                        <div class="o_ai_hero_text">
+                            <h2>AI Email Generator</h2>
+                            <p>Describe your campaign and let AI do the heavy lifting.</p>
+                        </div>
+                    </div>
+                    <!-- Active provider badge — computed field -->
+                    <div class="o_ai_provider_badge">
+                        <span class="o_ai_provider_label">Active Provider</span>
+                        <span class="o_ai_provider_value">
+                            <field name="active_provider_display" readonly="1" nolabel="1"/>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- hidden fields -->
+                <field name="mailing_id" invisible="1"/>
+                <field name="state" invisible="1"/>
+
+                <!-- ═══════════════════════════════════════════ -->
+                <!--  INPUT SECTION  (visible only in draft)     -->
+                <!-- ═══════════════════════════════════════════ -->
+                <div class="o_ai_body" invisible="state != 'draft'">
+
+                    <!-- PROMPT -->
+                    <div class="o_ai_section">
+                        <div class="o_ai_section_header">
+                            <i class="fa fa-pencil-square-o"/>
+                            <span>Campaign Prompt</span>
+                        </div>
+                        <field name="prompt"
+                               nolabel="1"
+                               placeholder="e.g. 30% off VIP exclusive sale for loyal customers, festive Diwali tone, include coupon code SAVE30, valid till 31 Oct"
+                               class="o_ai_prompt_field"/>
+                        <div class="o_ai_prompt_tips">
+                            <span class="o_ai_tip_title">
+                                <i class="fa fa-lightbulb-o"/> Tips for a great prompt:
+                            </span>
+                            <ul class="o_ai_tip_list">
+                                <li>Mention the <b>offer or purpose</b> (e.g. "30% off", "new product launch")</li>
+                                <li>Describe the <b>tone</b> (e.g. "festive", "professional", "friendly")</li>
+                                <li>Include <b>audience</b> context (e.g. "VIP members", "new subscribers")</li>
+                                <li>Add any <b>specific details</b> like coupon codes, dates, or product names</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- GENERATION TYPE -->
+                    <div class="o_ai_section">
+                        <div class="o_ai_section_header">
+                            <i class="fa fa-sliders"/>
+                            <span>Generation Type</span>
+                        </div>
+                        <div class="o_ai_cards">
+
+                            <!-- Text Only card -->
+                           <div class="o_ai_card">
+                                <div class="o_ai_card_icon o_ai_card_icon_text">
+                                    <i class="fa fa-align-left"/>
+                                </div>
+                                <div class="o_ai_card_content">
+                                    <div class="o_ai_card_title">Text Only</div>
+                                    <div class="o_ai_card_desc">
+                                        AI writes a new section (headline, paragraph, button)
+                                        and adds it to your existing template layout.
+                                        Best when you've already picked a design.
+                                    </div>
+                                </div>
+                                <field name="output_type"
+                                       nolabel="1"
+                                       widget="radio"
+                                       invisible="1"/>
+                           </div>
+
+                            <!-- Full Design card -->
+                           <div class="o_ai_card">
+                                <div class="o_ai_card_icon o_ai_card_icon_design">
+                                    <i class="fa fa-paint-brush"/>
+                                </div>
+                                <div class="o_ai_card_content">
+                                    <div class="o_ai_card_title">Full Design</div>
+                                    <div class="o_ai_card_desc">
+                                        AI redesigns the entire email — colors, layout,
+                                        text and structure. Best when you want a
+                                        complete refresh.
+                                    </div>
+                                </div>
+                           </div>
+
+                        </div>
+                        <!-- Actual radio field below cards — drives the value -->
+                        <div class="o_ai_radio_wrapper">
+                            <field name="output_type" nolabel="1" widget="radio"
+                                   options="{'horizontal': true}"/>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- ═══════════════════════════════════════════ -->
+                <!--  PROGRESS SECTION  (visible while running)  -->
+                <!-- ═══════════════════════════════════════════ -->
+                <div class="o_ai_progress_outer" invisible="state == 'draft'">
+
+                    <div class="o_ai_progress_title">
+                        <i class="fa fa-circle-o-notch fa-spin" invisible="state == 'done'"/>
+                        <i class="fa fa-check-circle" invisible="state != 'done'"/>
+                        <span invisible="state != 'done'">Template Generated Successfully!</span>
+                        <span invisible="state == 'done'">Generating your email template…</span>
+                    </div>
+
+                    <div class="o_ai_stepper">
+
+                        <!-- Step 1: Sending Request -->
+                        <div class="o_ai_step"
+                             invisible="state not in ('requesting','processing','generating','done')">
+                            <div class="o_ai_step_circle o_ai_step_active"
+                                 invisible="state != 'requesting'">
+                                <i class="fa fa-spinner fa-spin"/>
+                            </div>
+                            <div class="o_ai_step_circle o_ai_step_done"
+                                 invisible="state == 'requesting'">
+                                <i class="fa fa-check"/>
+                            </div>
+                            <div class="o_ai_step_label">Sending Request</div>
+                        </div>
+
+                        <div class="o_ai_step_line"
+                             invisible="state not in ('processing','generating','done')"/>
+
+                        <!-- Step 2: Processing -->
+                        <div class="o_ai_step"
+                             invisible="state not in ('processing','generating','done')">
+                            <div class="o_ai_step_circle o_ai_step_active"
+                                 invisible="state != 'processing'">
+                                <i class="fa fa-cog fa-spin"/>
+                            </div>
+                            <div class="o_ai_step_circle o_ai_step_done"
+                                 invisible="state == 'processing'">
+                                <i class="fa fa-check"/>
+                            </div>
+                            <div class="o_ai_step_label">Processing</div>
+                        </div>
+
+                        <div class="o_ai_step_line"
+                             invisible="state not in ('generating','done')"/>
+
+                        <!-- Step 3: Generating Content -->
+                        <div class="o_ai_step"
+                             invisible="state not in ('generating','done')">
+                            <div class="o_ai_step_circle o_ai_step_active"
+                                 invisible="state != 'generating'">
+                                <i class="fa fa-paint-brush fa-spin"/>
+                            </div>
+                            <div class="o_ai_step_circle o_ai_step_done"
+                                 invisible="state == 'generating'">
+                                <i class="fa fa-check"/>
+                            </div>
+                            <div class="o_ai_step_label">Generating Content</div>
+                        </div>
+
+                        <div class="o_ai_step_line" invisible="state != 'done'"/>
+
+                        <!-- Step 4: Done -->
+                        <div class="o_ai_step" invisible="state != 'done'">
+                            <div class="o_ai_step_circle o_ai_step_done">
+                                <i class="fa fa-star"/>
+                            </div>
+                            <div class="o_ai_step_label">Done!</div>
+                        </div>
+
+                    </div>
+
+                    <div class="o_ai_progress_note" invisible="state == 'done'">
+                        This may take up to 30–60 seconds depending on the AI provider.
+                        Please do not close this window.
+                    </div>
+
+                    <div class="o_ai_progress_note o_ai_success_note" invisible="state != 'done'">
+                        Your template is ready. The window will close and show your updated mailing.
+                    </div>
+
+                </div>
+
+                <!-- ═══════════════════════════════════════════ -->
+                <!--  FOOTER BUTTONS                             -->
+                <!-- ═══════════════════════════════════════════ -->
+                <footer>
+                    <button name="action_generate_template"
+                            type="object"
+                            string="✨  Generate Template"
+                            class="btn-primary o_ai_generate_btn"
+                            invisible="state != 'draft'"/>
+                    <button string="Cancel"
+                            class="btn-secondary"
+                            special="cancel"
+                            invisible="state != 'draft'"/>
+                    <button string="Close"
+                            class="btn-secondary"
+                            special="cancel"
+                            invisible="state == 'draft'"/>
+                </footer>
+
+            </form>
+        </field>
+    </record>
+
+</odoo>

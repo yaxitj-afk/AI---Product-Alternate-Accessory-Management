@@ -34,9 +34,9 @@
                         <group string="Configuration Used">
                             <field name="product_ai_suggestion_type"/>
                             <field name="product_ai_confidence"/>
-                            <field name="product_ai_token_used"/>
                             <field name="ai_provider"/>
                             <field name="ai_llm_model"/>
+                            <field name="product_ai_token_used"/>
                         </group>
                         <group string="Log Details">
                             <field name="product_ai_log_message"/>

@@ -55,11 +55,11 @@
                     <div style="width:100%; box-sizing:border-box; margin:0 auto 10px auto;">
                         <p
                             style="color:#355486; font-size:16px; line-height:1.65; margin:0; box-sizing:border-box; text-align:justify; width:100%;">
-                            The AI Product Recommendation Agent module provides a complete solution for automatically identifying and applying alternative and accessory products across your Odoo catalog using the power of OpenAI. Instead of manually linking related products one by one, your team selects the products they want to analyse, configures a few settings, and lets the AI do the work — scanning your full catalog, pricing data, categories, tags, attributes, and real sales history to generate intelligent suggestions that actually reflect how your customers shop.
+                            The AI Product Recommendation Agent module provides a complete solution for automatically identifying and applying alternative and accessory products across your Odoo catalog using the power of AI. Instead of manually linking related products one by one, your team simply selects the products to analyze, configures a few settings, and lets the AI do the work. The module supports leading AI providers, including OpenAI, Anthropic Claude, and Google Gemini, enabling it to scan your full catalog, pricing data, categories, tags, attributes, and real sales history to generate intelligent recommendations that reflect how your customers actually shop.
                         </p>
                         <p style="color:#355486; font-size:16px; line-height:1.65; margin:0; box-sizing:border-box; text-align:justify; width:100%; "
                             class="mt-3">
-                            The entire process is managed through a guided six-step dashboard that walks your team from product selection all the way through to reviewing and applying AI suggestions directly to your Odoo product records. Products can be selected individually through a live search, added all at once with a single click, or imported in bulk by uploading an Excel file containing SKU codes. A downloadable reference template ensures your team always uploads files in the correct format. Once products are selected and settings are configured, the system generates a structured Excel data file and sends it to OpenAI along with your business context, after which the results appear in a searchable review table ready to be applied in one click.
+                            The entire process is managed through a guided six-step dashboard that takes your team from product selection to reviewing and applying AI-generated recommendations directly to Odoo product records. Products can be added individually, imported in bulk via an Excel file, or selected all at once. After configuration, the system generates a structured data file and sends it to your chosen AI provider—OpenAI, Anthropic Claude, or Google Gemini. The recommendations are then displayed in a review table and can be applied with a single click.
                         </p>
                         <p style="color:#355486; font-size:16px; line-height:1.65; margin:0; box-sizing:border-box; text-align:justify; width:100%; "
                             class="mt-3">
@@ -718,7 +718,7 @@
                                     style="color:#123d73; font-size:clamp(13px, 3.4vw, 17px); line-height:1.35; font-weight:900; margin:0 0 14px; box-sizing:border-box;">
                                     <span
                                         style="background-color:#eaf2ff; color:#2563eb; border-radius:999px; display:inline-block; font-size:12px; font-weight:900; padding:6px 11px; margin-right:8px; box-sizing:border-box;">02</span>
-                                    From the Configuration menu, you can set up your ChatGPT API key and select the LLM model you want to use. The system supports multiple model options including GPT-4.1, GPT-4.1 Mini, GPT-5, GPT-5 Mini, GPT-5.4, and GPT-5.4 Mini, so you can choose the model that best fits your business needs.
+                                    From the Configuration menu, you can set up your AI provider API key and choose the LLM model you want to use. The module supports most of the latest models from OpenAI (ChatGPT), Anthropic Claude, and Google Gemini, allowing you to select the option that best fits your business needs.
                                 </p>
                                 <img src="2.png" class="img img-fluid"
                                     style="border-radius:16px; box-shadow:0 14px 34px rgba(15,23,42,0.10); margin:0; box-sizing:border-box;">
@@ -957,7 +957,7 @@
                                             </h4>
                                             <p
                                                 style="color:#526b96; font-size:13px; line-height:1.6; margin:0; box-sizing:border-box;">
-                                                The module supports multiple OpenAI models including GPT-4.1, GPT-4.1 Mini, GPT-5, GPT-5 Mini, GPT-5.4, and GPT-5.4 Mini. You can select the model that best fits your business needs from the Configuration page.
+                                                The module supports most of the latest AI models from OpenAI, Anthropic Claude, and Google Gemini. You can easily select your preferred model from the Configuration page based on your business needs.
                                             </p>
                                         </td>
                                     </tr>
@@ -980,11 +980,11 @@
                                         <td style="vertical-align:top; padding:0; box-sizing:border-box;">
                                             <h4
                                                 style="color:#123d73; font-size:16px; font-weight:900; line-height:1.4; margin:0 0 8px; box-sizing:border-box;">
-                                                Where do I enter my OpenAI API key?
+                                                Where do I enter my API key?
                                             </h4>
                                             <p
                                                 style="color:#526b96; font-size:13px; line-height:1.6; margin:0; box-sizing:border-box;">
-                                                You can enter your OpenAI API key from the Configuration menu inside the AI Dashboard. Simply open the Configuration page, enter your ChatGPT Key, select your preferred LLM model, and save.
+                                                You can enter your API key from the Configuration menu inside the AI Dashboard. Simply open the Configuration page, select the provider and enter your API Key, select your preferred LLM model, and save.
                                             </p>
                                         </td>
                                     </tr>
@@ -1146,7 +1146,7 @@
                                             </h4>
                                             <p
                                                 style="color:#526b96; font-size:13px; line-height:1.6; margin:0; box-sizing:border-box;">
-                                                Every AI log record shows the Total Tokens Used for that particular run. You can refer to this figure to monitor your API consumption and plan your OpenAI usage accordingly.
+                                                Every AI log record shows the Total Tokens Used for that particular run. You can refer to this figure to monitor your API consumption and plan your provider usage accordingly.
                                             </p>
                                         </td>
                                     </tr>
