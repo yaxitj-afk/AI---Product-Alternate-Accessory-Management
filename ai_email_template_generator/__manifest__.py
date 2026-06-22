@@ -31,6 +31,8 @@
     'assets': {
         'web.assets_backend': [
             'ai_email_template_generator/static/src/css/ai_generate.css',
+            'ai_email_template_generator/static/src/js/ai_email_template.js',
+            'ai_email_template_generator/static/src/xml/ai_email_template.xml',
         ],
     },
     'installable': True,

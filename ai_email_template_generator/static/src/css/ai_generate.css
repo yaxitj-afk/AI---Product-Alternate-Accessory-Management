@@ -149,6 +149,24 @@
     color: #714B67;
 }
 
+.o_ai_card {
+    cursor: pointer;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px;
+    transition: all 0.2s ease;
+}
+
+.o_ai_card:hover {
+    border-color: #714b67;
+    background-color: #f9f5f8;
+}
+
+.o_ai_card_selected {
+    border-color: #714b67 !important;
+    background-color: #f3eef7 !important;
+}
+
 .o_ai_tip_title {
     font-weight: 600;
     display: block;
@@ -262,7 +280,7 @@
 }
 
 .o_ai_progress_title .fa-check-circle {
-    color: #059669;
+    color: #a12aa6;
     font-size: 18px;
 }
 
@@ -344,7 +362,7 @@
 
 /* ── Generate button ── */
 .o_ai_generate_btn {
-    background: linear-gradient(90deg, #21B799, #875A7B);
+    background: linear-gradient(90deg, #a55b8f, #714b67);
 !important;
     border: none !important;
     color: #fff !important;
@@ -358,7 +376,7 @@
 
 .o_ai_generate_btn:hover {
     opacity: 0.92;
-    box-shadow: 0 4px 14px rgba(113,75,103,0.35);
+    box-shadow: 0 4px 14px rgba(113, 75, 103, 0.35);
 }
 
 /* ── Generate with AI button on mailing form ── */
@@ -373,12 +391,33 @@
     opacity: 0.9;
 }
 
+.o_ai_progress_title .o_ai_error_icon {
+    color: #B91C1C;
+    font-size: 18px;
+}
+
+.o_ai_error_note {
+    color: #991B1B;
+    background: #FEF2F2;
+    border-color: #FECACA;
+    font-weight: 500;
+}
+.o_ai_preview_outer { margin: 0 24px 20px; }
+.o_ai_preview_header { display:flex; align-items:center; gap:10px; margin-bottom:12px; font-size:15px; font-weight:600; color:#714B67; flex-wrap:wrap; }
+.o_ai_preview_hint { font-size:12px; color:#6B7280; font-weight:400; }
+.o_ai_preview_frame_wrap { border:2px solid #E5E7EB; border-radius:10px; overflow:hidden; background:#fff; min-height:300px; max-height:520px; overflow-y:auto; }
+.o_ai_done_outer { display:flex; flex-direction:column; align-items:center; padding:48px 24px; gap:10px; text-align:center; }
+.o_ai_done_outer h3 { margin:0; font-size:20px; font-weight:700; }
+.o_ai_done_outer p { margin:0; color:#6B7280; }
+
 /* ── Pulse animation for active step ── */
 @keyframes pulse {
     0%, 100% {
-       box-shadow: 0 0 0 4px rgba(113,75,103,0.2); }
+        box-shadow: 0 0 0 4px rgba(113, 75, 103, 0.2);
+    }
 
-    50%
-       { box-shadow: 0 0 0 8px rgba(113,75,103,0.08); }
+    50% {
+        box-shadow: 0 0 0 8px rgba(113, 75, 103, 0.08);
+    }
 
 }

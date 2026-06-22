@@ -28,10 +28,22 @@
                         </span>
                     </div>
                 </div>
+                <div class="o_ai_progress_title">
+                    <i class="fa fa-circle-o-notch fa-spin" invisible="state in ('done','failed')"/>
+                    <i class="fa fa-check-circle" invisible="state != 'done'"/>
+                    <i class="fa fa-exclamation-circle o_ai_error_icon" invisible="state != 'failed'"/>
+                    <span invisible="state != 'done'">Template Generated Successfully!</span>
+                    <span invisible="state != 'failed'">Generation Failed</span>
+                    <span invisible="state in ('done','failed')">Generating your email template…</span>
+                </div>
+                <div class="o_ai_progress_note o_ai_error_note" invisible="state != 'failed'">
+                    Something went wrong while generating the template. Please check your AI
+                    provider configuration and try again.
+                </div>
 
                 <!-- hidden fields -->
                 <field name="mailing_id" invisible="1"/>
-                <field name="state" invisible="1"/>
+                <field name="state" widget="ai_progress_tracker" invisible="1"/>
 
                 <!-- ═══════════════════════════════════════════ -->
                 <!--  INPUT SECTION  (visible only in draft)     -->
@@ -50,65 +62,30 @@
                                class="o_ai_prompt_field"/>
                         <div class="o_ai_prompt_tips">
                             <span class="o_ai_tip_title">
-                                <i class="fa fa-lightbulb-o"/> Tips for a great prompt:
+                                <i class="fa fa-lightbulb-o"/>
+                                Tips for a great prompt:
                             </span>
                             <ul class="o_ai_tip_list">
-                                <li>Mention the <b>offer or purpose</b> (e.g. "30% off", "new product launch")</li>
-                                <li>Describe the <b>tone</b> (e.g. "festive", "professional", "friendly")</li>
-                                <li>Include <b>audience</b> context (e.g. "VIP members", "new subscribers")</li>
-                                <li>Add any <b>specific details</b> like coupon codes, dates, or product names</li>
+                                <li>Mention the <b>offer or purpose</b> (e.g. "30% off", "new product launch")
+                                </li>
+                                <li>Describe the <b>tone</b> (e.g. "festive", "professional", "friendly")
+                                </li>
+                                <li>Include <b>audience</b> context (e.g. "VIP members", "new subscribers")
+                                </li>
+                                <li>Add any <b>specific details</b> like coupon codes, dates, or product names
+                                </li>
                             </ul>
                         </div>
                     </div>
 
+                    <!-- GENERATION TYPE -->
                     <!-- GENERATION TYPE -->
                     <div class="o_ai_section">
                         <div class="o_ai_section_header">
                             <i class="fa fa-sliders"/>
                             <span>Generation Type</span>
                         </div>
-                        <div class="o_ai_cards">
-
-                            <!-- Text Only card -->
-                           <div class="o_ai_card">
-                                <div class="o_ai_card_icon o_ai_card_icon_text">
-                                    <i class="fa fa-align-left"/>
-                                </div>
-                                <div class="o_ai_card_content">
-                                    <div class="o_ai_card_title">Text Only</div>
-                                    <div class="o_ai_card_desc">
-                                        AI writes a new section (headline, paragraph, button)
-                                        and adds it to your existing template layout.
-                                        Best when you've already picked a design.
-                                    </div>
-                                </div>
-                                <field name="output_type"
-                                       nolabel="1"
-                                       widget="radio"
-                                       invisible="1"/>
-                           </div>
-
-                            <!-- Full Design card -->
-                           <div class="o_ai_card">
-                                <div class="o_ai_card_icon o_ai_card_icon_design">
-                                    <i class="fa fa-paint-brush"/>
-                                </div>
-                                <div class="o_ai_card_content">
-                                    <div class="o_ai_card_title">Full Design</div>
-                                    <div class="o_ai_card_desc">
-                                        AI redesigns the entire email — colors, layout,
-                                        text and structure. Best when you want a
-                                        complete refresh.
-                                    </div>
-                                </div>
-                           </div>
-
-                        </div>
-                        <!-- Actual radio field below cards — drives the value -->
-                        <div class="o_ai_radio_wrapper">
-                            <field name="output_type" nolabel="1" widget="radio"
-                                   options="{'horizontal': true}"/>
-                        </div>
+                        <field name="output_type" nolabel="1" widget="ai_card_selector"/>
                     </div>
 
                 </div>
@@ -198,23 +175,50 @@
 
                 </div>
 
+                <!-- PREVIEW SECTION -->
+                <div class="o_ai_preview_outer" invisible="state != 'preview'">
+                    <div class="o_ai_preview_header">
+                        <i class="fa fa-eye"/>
+                        <b>Preview Generated Template</b>
+                        <span class="o_ai_preview_hint">
+                            Review below. Confirm to apply it to your mailing, or go back to regenerate.
+                        </span>
+                    </div>
+                    <div class="o_ai_preview_frame_wrap">
+                        <field name="preview_html" widget="html" nolabel="1" readonly="1"/>
+                    </div>
+                </div>
+
+                <!-- DONE SECTION -->
+                <div class="o_ai_done_outer" invisible="state != 'done'">
+                    <i class="fa fa-check-circle" style="font-size:48px;color:#16A34A;"/>
+                    <h3>Template Applied!</h3>
+                    <p>Your mailing has been updated with the generated template.</p>
+                </div>
+
                 <!-- ═══════════════════════════════════════════ -->
                 <!--  FOOTER BUTTONS                             -->
                 <!-- ═══════════════════════════════════════════ -->
                 <footer>
-                    <button name="action_generate_template"
-                            type="object"
-                            string="✨  Generate Template"
-                            class="btn-primary o_ai_generate_btn"
+                    <button name="action_generate_template" type="object"
+                            string="Generate Template" class="btn-primary"
                             invisible="state != 'draft'"/>
-                    <button string="Cancel"
-                            class="btn-secondary"
-                            special="cancel"
+                    <button string="Cancel" special="cancel" class="btn-secondary"
                             invisible="state != 'draft'"/>
-                    <button string="Close"
-                            class="btn-secondary"
-                            special="cancel"
-                            invisible="state == 'draft'"/>
+
+                    <button name="action_confirm_template" type="object"
+                            string="Apply to Mailing" class="btn-primary"
+                            invisible="state != 'preview'"/>
+                    <button name="action_regenerate" type="object"
+                            string="Regenerate" class="btn-secondary"
+                            invisible="state != 'preview'"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"
+                            invisible="state != 'preview'"/>
+
+                    <button string="Close" special="cancel" class="btn-secondary"
+                            invisible="state not in ('requesting','processing','generating','failed')"/>
+                    <button string="Close" special="cancel" class="btn-primary"
+                            invisible="state != 'done'"/>
                 </footer>
 
             </form>

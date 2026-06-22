@@ -19,5 +19,6 @@ class MailingMailing(models.Model):
             'target': 'new',
             'context': {
                 'default_mailing_id': self.id,
+                'default_prompt': self.subject or '',
             },
         }

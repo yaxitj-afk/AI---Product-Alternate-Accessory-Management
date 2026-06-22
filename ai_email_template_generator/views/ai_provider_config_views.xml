@@ -21,6 +21,7 @@
                         <group>
                             <field name="ai_provider" widget="radio"/>
                         </group>
+
                         <group invisible="ai_provider != 'openai'">
                             <field name="openai_api_key" password="True"/>
                             <field name="openai_model"/>
@@ -31,7 +32,6 @@
                             <field name="anthropic_model"/>
                             <field name="claude_max_tokens"/>
                         </group>
-
 
                         <group invisible="ai_provider != 'gemini'">
                             <field name="gemini_api_key" password="True"/>

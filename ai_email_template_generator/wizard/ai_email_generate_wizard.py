@@ -9,7 +9,6 @@ _logger = logging.getLogger(__name__)
 
 
 class AiEmailGenerateWizard(models.TransientModel):
-
     _name = 'ai.email.generate.wizard'
     _description = 'AI Email Template Generate Wizard'
 
@@ -43,7 +42,10 @@ class AiEmailGenerateWizard(models.TransientModel):
             ('requesting', 'Sending Request'),
             ('processing', 'Processing'),
             ('generating', 'Generating Content'),
-            ('done', 'Done'),
+            ('done', 'Generated Successfully'),
+            ('preview', 'Preview'),
+            ('done', 'Applied Successfully'),
+            ('failed', 'Failed'),
         ],
         default='draft',
         string="Status",
@@ -57,6 +59,10 @@ class AiEmailGenerateWizard(models.TransientModel):
     active_provider_display = fields.Char(
         string="Active Provider",
         compute='_compute_active_provider_display',
+    )
+    preview_html = fields.Html(
+        string="Generated Preview",
+        sanitize=False,
     )
 
     @api.depends()
@@ -86,8 +92,10 @@ class AiEmailGenerateWizard(models.TransientModel):
         4. Reopen the mailing form so the user sees the result.
         """
         self.ensure_one()
+        self.state = 'requesting'
+        self.env.cr.commit()
 
-        config = self.env['ai.provider.config'].sudo().search([],limit=1)
+        config = self.env['ai.provider.config'].sudo().search([], limit=1)
         api_key, llm_model = config.get_provider_credential()
         if not api_key:
             raise UserError(
@@ -95,16 +103,32 @@ class AiEmailGenerateWizard(models.TransientModel):
                 "Please set it in AI Configuration > AI Provider."
             )
 
-        self.state = 'requesting'
         self.provider_used = config.ai_provider
-
         generated_html = self._call_ai_provider(config, api_key, llm_model)
 
         self.state = 'generating'
-        self._apply_result_to_mailing(generated_html)
+        self.env.cr.commit()
 
+        self.preview_html = generated_html
+        self.state = 'preview'
+        self.env.cr.commit()
+
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': self._name,
+            'res_id': self.id,
+            'view_mode': 'form',
+            'target': 'new',
+            'context': self.env.context,
+        }
+
+    def action_confirm_template(self):
+        self.ensure_one()
+        if not self.preview_html:
+            raise UserError("No preview to apply. Please generate first.")
+        self._apply_result_to_mailing(self.preview_html)
         self.state = 'done'
-
+        self.env.cr.commit()
         return {
             'type': 'ir.actions.act_window',
             'res_model': 'mailing.mailing',
@@ -112,6 +136,128 @@ class AiEmailGenerateWizard(models.TransientModel):
             'view_mode': 'form',
             'target': 'current',
         }
+
+    def action_regenerate(self):
+        self.ensure_one()
+        self.preview_html = False
+        self.state = 'draft'
+        self.env.cr.commit()
+        return self.action_generate_template()
+
+    def _build_full_prompt(self):
+        company = self.env.company
+        base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+        company_info = (
+            f"COMPANY DETAILS (use these in the template where appropriate):\n"
+            f"- Company Name: {company.name or ''}\n"
+            f"- Email: {company.email or ''}\n"
+            f"- Website: {company.website or ''}\n"
+            f"- Logo URL: {base_url}/web/image/res.company/{company.id}/logo\n\n"
+            "RULES FOR USING COMPANY DETAILS:\n"
+            "- Use Company Name where a brand/company name appears.\n"
+            "- Use Logo URL only in <img> tags where a logo is shown.\n"
+            "- Use Website URL for CTA buttons or 'visit us' links.\n"
+            "- Use Email only in footer/contact sections.\n"
+            "- Do NOT repeat the same detail in multiple places.\n"
+            "- If a section does not need company info, do NOT add it.\n\n"
+        )
+
+        ODOO_CSS_RULES = (
+            "CRITICAL CSS RULES (must follow):\n"
+            "- box-shadow and text-shadow: ALWAYS use format 'Xpx Ypx Zpx color/rgba(...)' — NEVER put color/rgba() first.\n"
+            "- Do NOT use 'display: flex', 'display: grid', 'position: absolute/relative/fixed' in inline styles.\n"
+            "- Do NOT use CSS variables (--variable-name) inside inline style attributes — only inside the <style> block.\n"
+            "- Do NOT use 'vw', 'vh', 'em', 'rem' units in inline styles — use only 'px' or '%'.\n\n"
+        )
+
+        ODOO_STRUCTURE_RULES = (
+            "CRITICAL STRUCTURE RULES (must follow):\n"
+            "- ALWAYS use <section>...</section> tags for every block — NEVER use <div> as a block container.\n"
+            "- Every <section> MUST have: data-snippet='s_*', data-name='...', data-vxml='001', "
+            "classes 'o_mail_snippet_general o_colored_level'.\n"
+            "- Use Bootstrap grid inside sections: "
+            "<div class='container'> > <div class='row'> > <div class='col-md-*'>.\n"
+            "- NEVER use <tr>, <td>, <table> as block containers — only use them for email-safe layouts inside sections.\n\n"
+        )
+
+        if self.output_type == 'full_design':
+            return (
+                    "You are editing an existing Odoo mass-mailing HTML template. "
+                    "This template uses Odoo's snippet system - every section "
+                    "has data-snippet, data-name, and data-vxml attributes, plus "
+                    "classes like o_mail_snippet_general and o_colored_level, and "
+                    "is wrapped in o_layout/o_mail_wrapper containers with CSS "
+                    "custom properties for theming.\n\n"
+                    "CRITICAL RULES (structure - must follow):\n"
+                    "- Do NOT remove, rename, or alter any data-snippet, data-name, "
+                    "or data-vxml attribute.\n"
+                    "- Do NOT remove or rename o_mail_snippet_general, "
+                    "o_colored_level, o_layout, o_mail_wrapper, or o_mail_wrapper_td "
+                    "classes.\n"
+                    "- Do NOT remove the <style id=\"design-element\"> block.\n"
+                    "- Keep the same number and order of sections unless the "
+                    "request explicitly asks to add/remove a section.\n\n"
+                    + ODOO_STRUCTURE_RULES
+                    + ODOO_CSS_RULES
+                    + "ALLOWED STYLING IMPROVEMENTS (you may freely adjust these to "
+                      "make the design look better and more polished):\n"
+                      "- The CSS variable VALUES inside the <style id=\"design-element\"> "
+                      "block (colors, font sizes, font families, spacing, border "
+                      "styles) - change the values, but keep the variable names.\n"
+                      "- Inline style=\"...\" attribute values already present on "
+                      "sections (e.g. background-color, padding).\n"
+                      "- Bootstrap spacing/utility classes already used in the "
+                      "template (e.g. pt16, pb24, mb0) - you may adjust these "
+                      "values for better visual balance.\n"
+                      "- Text content, image src/alt, link hrefs.\n\n"
+                      "When the user asks to 'improve styling' or 'make it look "
+                      "better', focus on color harmony, spacing/padding balance, "
+                      "and font sizing using the allowed changes above - do not "
+                      "restructure or replace the snippet markup itself.\n\n"
+                      "EXISTING TEMPLATE:\n"
+                      f"{self.mailing_id.body_arch}\n\n"
+                    + company_info
+                    + "USER REQUEST:\n"
+                      f"{self.prompt}\n\n"
+                      "Return ONLY the complete updated HTML fragment - do NOT "
+                      "include <!DOCTYPE>, <html>, <head>, or <body> tags. Do NOT "
+                      "include an XML declaration such as <?xml version=\"1.0\"?> "
+                      "at the top of the response.\n"
+                      "No explanation, no commentary, no markdown code fences."
+            )
+        else:
+            return (
+                    "You are adding a new text section to an existing Odoo "
+                    "mass-mailing HTML template. The template uses Odoo's snippet "
+                    "system - sections have data-snippet, data-name, and data-vxml "
+                    "attributes, plus classes like o_mail_snippet_general and "
+                    "o_colored_level.\n\n"
+                    "Generate ONE new <section> for the requested content (a short "
+                    "headline, one short paragraph, and a call to action button), "
+                    "following the SAME conventions as the sections already present "
+                    "in the template below - reuse a similar data-snippet value "
+                    "style (e.g. s_title or s_text), include o_mail_snippet_general "
+                    "and o_colored_level classes, and rely on the template's "
+                    "existing CSS variables for fonts/colors instead of introducing "
+                    "new ones.\n\n"
+                    "IMPORTANT: Do NOT include a new <style> tag - the parent "
+                    "template already has one. Do NOT modify or repeat any existing "
+                    "section from the template below; only output the new section "
+                    "you are adding.\n\n"
+                    + ODOO_STRUCTURE_RULES
+                    + ODOO_CSS_RULES
+                    + "REFERENCE TEMPLATE (for snippet conventions only - do not "
+                      "repeat this back):\n"
+                      f"{self.mailing_id.body_arch}\n\n"
+                    + company_info
+                    + "USER REQUEST:\n"
+                      f"{self.prompt}\n\n"
+                      "Return ONLY the new <section>...</section> HTML - output literal "
+                      "'<' and '>' characters for tags, NOT escaped entities like "
+                      "'&lt;' or '&gt;'. Do NOT include an XML declaration such as "
+                      "<?xml version=\"1.0\"?> at the top of the response.\n"
+                      "No explanation, no commentary, no markdown code fences."
+            )
 
     # ------------------------------------------------------------
     # Internal helpers (one small method per concern)
@@ -122,8 +268,10 @@ class AiEmailGenerateWizard(models.TransientModel):
         remains. Captures token usage and writes a log record via the
         shared _create_log helper, regardless of success or failure.
         """
-        self.state = 'processing'
+        self.state = 'requesting'
+        self.env.cr.commit()
         full_prompt = self._build_full_prompt()
+        print('Given prompt :- ====', full_prompt)
 
         try:
             if config.ai_provider == 'openai':
@@ -134,6 +282,9 @@ class AiEmailGenerateWizard(models.TransientModel):
             else:
                 raw_result, total_tokens = self._generate_with_gemini(full_prompt, api_key, llm_model)
 
+            self.state = 'processing'
+            self.env.cr.commit()
+
             cleaned_html = self._extract_html(raw_result)
             self._create_log(
                 config=config, llm_model=llm_model, state='success',
@@ -143,6 +294,8 @@ class AiEmailGenerateWizard(models.TransientModel):
             return cleaned_html
 
         except UserError as error:
+            self.state = 'failed'
+            self.env.cr.commit()
             self._create_log(
                 config=config, llm_model=llm_model, state='failed',
                 log_message=f"Failed to Generate Email Template: {error}",
@@ -173,7 +326,9 @@ class AiEmailGenerateWizard(models.TransientModel):
             return text
 
         text = text.strip()
-        text = html.unescape(text)  # Converts HTML entities like &lt; and &gt; back into real < > tags, in case the AI escaped its HTML output
+        text = html.unescape(
+            text)  # Converts HTML entities like &lt; and &gt; back into real < > tags, in case the AI escaped its HTML output
+        text = re.sub(r'<\?xml.*?\?>', '', text, flags=re.IGNORECASE | re.DOTALL).strip()
 
         # ADDED: strip ```html ... ``` markdown fences if the model wrapped the output
         fence_match = re.search(r'```(?:html)?\s*(.*?)```', text, re.DOTALL | re.IGNORECASE)
@@ -191,6 +346,7 @@ class AiEmailGenerateWizard(models.TransientModel):
         text = re.sub(r'</?html[^>]*>', '', text, flags=re.IGNORECASE)
         text = re.sub(r'<head[^>]*>.*?</head>', '', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'</?body[^>]*>', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'<\?xml.*?\?>', '', text, flags=re.IGNORECASE | re.DOTALL).strip()
 
         # Existing-style fallback: slice from first '<' to last '>'
         start_idx = text.find('<')
@@ -200,90 +356,27 @@ class AiEmailGenerateWizard(models.TransientModel):
 
         return text.strip()
 
-    def _build_full_prompt(self):
-        if self.output_type == 'full_design':
-            return (
-                "You are editing an existing Odoo mass-mailing HTML template. "
-                "This template uses Odoo's snippet system - every section/div "
-                "has data-snippet, data-name, and data-vxml attributes, plus "
-                "classes like o_mail_snippet_general and o_colored_level, and "
-                "is wrapped in o_layout/o_mail_wrapper containers with CSS "
-                "custom properties for theming.\n\n"
-                "CRITICAL RULES (structure - must follow):\n"
-                "- Do NOT remove, rename, or alter any data-snippet, data-name, "
-                "or data-vxml attribute.\n"
-                "- Do NOT remove or rename o_mail_snippet_general, "
-                "o_colored_level, o_layout, o_mail_wrapper, or o_mail_wrapper_td "
-                "classes.\n"
-                "- Do NOT remove the <style id=\"design-element\"> block.\n"
-                "- Keep the same number and order of sections unless the "
-                "request explicitly asks to add/remove a section.\n\n"
-                "ALLOWED STYLING IMPROVEMENTS (you may freely adjust these to "
-                "make the design look better and more polished):\n"
-                "- The CSS variable VALUES inside the <style id=\"design-element\"> "
-                "block (colors, font sizes, font families, spacing, border "
-                "styles) - change the values, but keep the variable names.\n"
-                "- Inline style=\"...\" attribute values already present on "
-                "sections (e.g. background-color, padding).\n"
-                "- Bootstrap spacing/utility classes already used in the "
-                "template (e.g. pt16, pb24, mb0) - you may adjust these "
-                "values for better visual balance.\n"
-                "- Text content, image src/alt, link hrefs.\n\n"
-                "When the user asks to 'improve styling' or 'make it look "
-                "better', focus on color harmony, spacing/padding balance, "
-                "and font sizing using the allowed changes above - do not "
-                "restructure or replace the snippet markup itself.\n\n"
-                "EXISTING TEMPLATE:\n"
-                f"{self.mailing_id.body_arch}\n\n"
-                "USER REQUEST:\n"
-                f"{self.prompt}\n\n"
-                "Return ONLY the complete updated HTML fragment - do NOT "
-                "include <!DOCTYPE>, <html>, <head>, or <body> tags. No "
-                "explanation, no commentary, no markdown code fences."
-            )
-        return (
-            "You are adding a new text section to an existing Odoo "
-            "mass-mailing HTML template. The template uses Odoo's snippet "
-            "system - sections have data-snippet, data-name, and data-vxml "
-            "attributes, plus classes like o_mail_snippet_general and "
-            "o_colored_level.\n\n"
-            "Generate ONE new <section> for the requested content (a short "
-            "headline, one short paragraph, and a call to action button), "
-            "following the SAME conventions as the sections already present "
-            "in the template below - reuse a similar data-snippet value "
-            "style (e.g. s_title or s_text), include o_mail_snippet_general "
-            "and o_colored_level classes, and rely on the template's "
-            "existing CSS variables for fonts/colors instead of introducing "
-            "new ones.\n\n"
-            "IMPORTANT: Do NOT include a new <style> tag - the parent "
-            "template already has one. Do NOT modify or repeat any existing "
-            "section from the template below; only output the new section "
-            "you are adding.\n\n"
-            "REFERENCE TEMPLATE (for snippet conventions only - do not "
-            "repeat this back):\n"
-            f"{self.mailing_id.body_arch}\n\n"
-            "USER REQUEST:\n"
-            f"{self.prompt}\n\n"
-            "Return ONLY the new <section>...</section> HTML - output literal "
-            "'<' and '>' characters for tags, NOT escaped entities like "
-            "'&lt;' or '&gt;'. No explanation, no commentary, no markdown "
-            "code fences."
-        )
-
     def _apply_result_to_mailing(self, generated_html):
         """Writes the AI result into the mailing body field.
-        Text Only mode wraps the generated text inside the
-        previously selected template; Full Design mode replaces
-        the whole body directly.
+        Text Only mode nests the generated <section> inside the existing
+        wrapper structure so it stays a child of the mailing's o_layout
+        container; Full Design mode replaces the whole body directly.
         """
         if not generated_html:
             raise UserError("The AI provider did not return any content.")
 
+        print('Generated AI HTML ===== ', generated_html)
+
         if self.output_type == 'full_design':
             self.mailing_id.body_arch = generated_html
         else:
-            current_body = self.mailing_id.body_arch or ''
-            self.mailing_id.body_arch = generated_html + current_body
+            self.mailing_id.body_arch = (
+                '<div data-name="Mailing" class="o_layout oe_unremovable oe_unmovable o_basic_theme">'
+                '<div class="oe_structure">'
+                f'{generated_html}'
+                '<p><br/><a href="/unsubscribe_from_list">Unsubscribe</a></p>'
+                '</div></div>'
+            )
 
     # ------------------------------------------------------------
     # Provider specific calls
@@ -350,7 +443,7 @@ class AiEmailGenerateWizard(models.TransientModel):
             _logger.error("AI provider call failed: %s", error.response.text if error.response is not None else error)
             raise UserError(
                 "The AI provider returned an error. Please check the "
-                "API key and try again."
+                f"{error}"
             )
         except requests.exceptions.Timeout:
             raise UserError(f'{provider} API timed out. Please try again.')

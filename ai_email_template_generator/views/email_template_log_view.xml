@@ -55,13 +55,9 @@
                         <field name="log_message"/>
                     </group>
 
-                    <!--                    <group string="Generated Template" invisible="state != 'success'">-->
-                    <!--                        &lt;!&ndash; CHANGED: widget="ace" restored for proper-->
-                    <!--                             code-style display, but WITHOUT the 'mode'-->
-                    <!--                             option that caused the CodeEditor OwlError-->
-                    <!--                             on this Odoo build &ndash;&gt;-->
-                    <!--                        <field name="generated_html" widget="ace" nolabel="1"/>-->
-                    <!--                    </group>-->
+                    <group string="Generated Template" invisible="state != 'success'">
+                        <field name="generated_html" widget="ace" nolabel="1"/>
+                    </group>
                 </sheet>
             </form>
         </field>
